@@ -1,5 +1,4 @@
-// API client for campaigns
-const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:3001'
+import { request } from './api'
 
 export interface Campaign {
   id: string
@@ -66,49 +65,19 @@ export async function createCampaign(
   token: string,
   data: { name: string; description?: string; budget?: number }
 ): Promise<Campaign> {
-  const response = await fetch(`${API_BASE_URL}/api/campaigns`, {
+  return request<Campaign>('/api/campaigns', {
     method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      Authorization: `Bearer ${token}`,
-    },
-    body: JSON.stringify(data),
+    token,
+    body: data,
   })
-
-  if (!response.ok) {
-    const error = await response.json().catch(() => ({ error: 'Failed to create campaign' }))
-    throw new Error(error.error || 'Failed to create campaign')
-  }
-
-  return response.json()
 }
 
 export async function listCampaigns(token: string): Promise<Campaign[]> {
-  const response = await fetch(`${API_BASE_URL}/api/campaigns`, {
-    headers: {
-      Authorization: `Bearer ${token}`,
-    },
-  })
-
-  if (!response.ok) {
-    throw new Error('Failed to fetch campaigns')
-  }
-
-  return response.json()
+  return request<Campaign[]>('/api/campaigns', { token })
 }
 
 export async function getCampaign(token: string, id: string): Promise<CampaignDetail> {
-  const response = await fetch(`${API_BASE_URL}/api/campaigns/${id}`, {
-    headers: {
-      Authorization: `Bearer ${token}`,
-    },
-  })
-
-  if (!response.ok) {
-    throw new Error('Campaign not found')
-  }
-
-  return response.json()
+  return request<CampaignDetail>(`/api/campaigns/${id}`, { token })
 }
 
 export async function generateAssets(
@@ -116,21 +85,11 @@ export async function generateAssets(
   campaignId: string,
   channels: string[]
 ): Promise<{ message: string; jobs: any[] }> {
-  const response = await fetch(`${API_BASE_URL}/api/campaigns/${campaignId}/generate-assets`, {
+  return request('/api/campaigns/' + campaignId + '/generate-assets', {
     method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      Authorization: `Bearer ${token}`,
-    },
-    body: JSON.stringify({ channels }),
+    token,
+    body: { channels },
   })
-
-  if (!response.ok) {
-    const error = await response.json().catch(() => ({ error: 'Failed to generate assets' }))
-    throw new Error(error.error || 'Failed to generate assets')
-  }
-
-  return response.json()
 }
 
 export async function updateAsset(
@@ -138,21 +97,11 @@ export async function updateAsset(
   assetId: string,
   content: string
 ): Promise<GeneratedAsset> {
-  const response = await fetch(`${API_BASE_URL}/api/assets/${assetId}`, {
+  return request<GeneratedAsset>(`/api/assets/${assetId}`, {
     method: 'PUT',
-    headers: {
-      'Content-Type': 'application/json',
-      Authorization: `Bearer ${token}`,
-    },
-    body: JSON.stringify({ content }),
+    token,
+    body: { content },
   })
-
-  if (!response.ok) {
-    const error = await response.json().catch(() => ({ error: 'Failed to update asset' }))
-    throw new Error(error.error || 'Failed to update asset')
-  }
-
-  return response.json()
 }
 
 export async function uploadCampaignSource(
@@ -165,19 +114,9 @@ export async function uploadCampaignSource(
     fileSize?: number
   }
 ): Promise<CampaignSource> {
-  const response = await fetch(`${API_BASE_URL}/api/campaigns/${campaignId}/upload`, {
+  return request<CampaignSource>(`/api/campaigns/${campaignId}/upload`, {
     method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      Authorization: `Bearer ${token}`,
-    },
-    body: JSON.stringify(data),
+    token,
+    body: data,
   })
-
-  if (!response.ok) {
-    const error = await response.json().catch(() => ({ error: 'Failed to upload' }))
-    throw new Error(error.error || 'Failed to upload')
-  }
-
-  return response.json()
 }
