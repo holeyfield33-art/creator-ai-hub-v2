@@ -181,7 +181,29 @@ export async function uploadCampaignSourceHandler(
         },
       })
 
-      return reply.status(201).send(source)
+      // Create a summarize job for this text
+      const job = await prisma.job.create({
+        data: {
+          type: 'summarize',
+          status: 'pending',
+          payload: {
+            campaignId: id,
+            sourceId: source.id,
+            text: text.trim(),
+          },
+        },
+      })
+
+      request.log.info(`Created summarize job ${job.id} for campaign ${id}`)
+
+      return reply.status(201).send({
+        source,
+        job: {
+          id: job.id,
+          status: job.status,
+          type: job.type,
+        },
+      })
     } else if (sourceType === 'file') {
       if (!fileName) {
         return reply.status(400).send({ error: 'File name is required' })
