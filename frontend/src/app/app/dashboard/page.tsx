@@ -7,7 +7,7 @@ import { LineChart, Line, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, L
 import { format } from 'date-fns';
 
 export default function DashboardPage() {
-  const { token } = useAuth();
+  const { session } = useAuth();
   const [metrics, setMetrics] = useState<DashboardMetrics | null>(null);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -16,13 +16,13 @@ export default function DashboardPage() {
   const [platformFilter, setPlatformFilter] = useState('');
 
   const loadMetrics = async () => {
-    if (!token) return;
+    if (!session?.access_token) return;
 
     try {
       setLoading(true);
       setError('');
       const data = await getDashboardMetrics(
-        token,
+        session.access_token,
         parseInt(timeRange),
         platformFilter || undefined
       );
@@ -36,14 +36,14 @@ export default function DashboardPage() {
 
   useEffect(() => {
     loadMetrics();
-  }, [token, timeRange, platformFilter]);
+  }, [session, timeRange, platformFilter]);
 
   const handleRefresh = async () => {
-    if (!token) return;
+    if (!session?.access_token) return;
 
     try {
       setRefreshing(true);
-      const result = await refreshMetrics(token);
+      const result = await refreshMetrics(session.access_token);
       alert(`Triggered metrics collection for ${result.jobsCreated} posts. Refresh in a minute to see updated data.`);
     } catch (err: any) {
       alert(`Error: ${err.message}`);
@@ -143,12 +143,12 @@ export default function DashboardPage() {
               <CartesianGrid strokeDasharray="3 3" />
               <XAxis
                 dataKey="date"
-                tickFormatter={(date) => format(new Date(date), 'MMM d')}
+                tickFormatter={(date: string) => format(new Date(date), 'MMM d')}
               />
               <YAxis />
               <Tooltip
-                labelFormatter={(date) => format(new Date(date), 'PPP')}
-                formatter={(value: number) => value.toLocaleString()}
+                labelFormatter={(date) => date ? format(new Date(date as string), 'PPP') : ''}
+                formatter={(value) => value !== undefined ? value.toLocaleString() : ''}
               />
               <Legend />
               <Line
@@ -178,7 +178,7 @@ export default function DashboardPage() {
                 <CartesianGrid strokeDasharray="3 3" />
                 <XAxis dataKey="platform" />
                 <YAxis />
-                <Tooltip formatter={(value: number) => value.toLocaleString()} />
+                <Tooltip formatter={(value) => value !== undefined ? value.toLocaleString() : ''} />
                 <Legend />
                 <Bar dataKey="posts" fill="#3b82f6" name="Posts" />
                 <Bar dataKey="engagements" fill="#10b981" name="Engagements" />

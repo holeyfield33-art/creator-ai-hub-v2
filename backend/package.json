@@ -6,8 +6,10 @@
   "scripts": {
     "dev": "nodemon --watch src --exec ts-node src/index.ts",
     "worker": "nodemon --watch src --exec ts-node src/worker.ts",
-    "build": "tsc",
+    "build": "tsc && npx prisma generate",
     "start": "node dist/index.js",
+    "start:worker": "node dist/worker.js",
+    "postinstall": "npx prisma generate",
     "test": "jest --coverage",
     "test:watch": "jest --watch"
   },
