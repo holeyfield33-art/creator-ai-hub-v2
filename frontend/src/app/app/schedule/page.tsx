@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { Suspense, useEffect, useState } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { useAuth } from '@/lib/auth-context'
 import {
@@ -14,6 +14,14 @@ import {
 } from '@/lib/social-api'
 
 export default function SchedulePage() {
+  return (
+    <Suspense fallback={<div className="flex items-center justify-center h-full"><div className="text-gray-400">Loading...</div></div>}>
+      <ScheduleContent />
+    </Suspense>
+  )
+}
+
+function ScheduleContent() {
   const { session, loading: authLoading } = useAuth()
   const router = useRouter()
   const searchParams = useSearchParams()
@@ -27,24 +35,18 @@ export default function SchedulePage() {
       router.push('/login')
       return
     }
-
     if (session?.access_token) {
       loadData()
     }
-
-    // Check for OAuth success/error
     if (searchParams.get('connected') === 'true') {
-      alert('Account connected successfully!')
       window.history.replaceState({}, '', '/app/schedule')
     } else if (searchParams.get('error') === 'true') {
-      alert('Failed to connect account. Please try again.')
       window.history.replaceState({}, '', '/app/schedule')
     }
   }, [session, authLoading, router, searchParams])
 
   async function loadData() {
     if (!session?.access_token) return
-
     try {
       setLoading(true)
       const [connectionsData, postsData] = await Promise.all([
@@ -62,7 +64,6 @@ export default function SchedulePage() {
 
   async function handleConnectX() {
     if (!session?.access_token) return
-
     try {
       setConnecting(true)
       const { authUrl } = await getConnectXUrl(session.access_token)
@@ -75,7 +76,6 @@ export default function SchedulePage() {
 
   async function handleDisconnect(connectionId: string) {
     if (!session?.access_token || !confirm('Disconnect this account?')) return
-
     try {
       await disconnectConnection(connectionId, session.access_token)
       await loadData()
@@ -86,7 +86,6 @@ export default function SchedulePage() {
 
   async function handleCancelPost(postId: string) {
     if (!session?.access_token || !confirm('Cancel this scheduled post?')) return
-
     try {
       await cancelScheduledPost(postId, session.access_token)
       await loadData()
@@ -97,8 +96,8 @@ export default function SchedulePage() {
 
   if (authLoading || loading) {
     return (
-      <div style={{ padding: '2rem' }}>
-        <p>Loading...</p>
+      <div className="flex items-center justify-center h-full">
+        <div className="text-gray-400">Loading...</div>
       </div>
     )
   }
@@ -108,152 +107,90 @@ export default function SchedulePage() {
   const failedPosts = posts.filter((p) => p.status === 'failed')
 
   return (
-    <div style={{ padding: '2rem', maxWidth: '1200px', margin: '0 auto' }}>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '2rem' }}>
-        <h1 style={{ fontSize: '2rem', fontWeight: 'bold' }}>Social Scheduling</h1>
-        <button
-          onClick={() => router.push('/app/campaigns')}
-          style={{
-            padding: '0.5rem 1rem',
-            border: '1px solid #ddd',
-            borderRadius: '4px',
-            backgroundColor: 'white',
-            cursor: 'pointer',
-          }}
-        >
-          ← Back to Campaigns
-        </button>
+    <div className="p-8 max-w-5xl mx-auto">
+      <div className="flex items-center justify-between mb-8">
+        <div>
+          <h1 className="text-3xl font-bold text-white tracking-tight">Social Scheduling</h1>
+          <p className="text-gray-400 mt-1">Manage connections and scheduled posts</p>
+        </div>
       </div>
 
-      {/* Connected Accounts Section */}
-      <div style={{ marginBottom: '3rem' }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
-          <h2 style={{ fontSize: '1.5rem', fontWeight: '600' }}>Connected Accounts</h2>
-          <button
-            onClick={handleConnectX}
-            disabled={connecting}
-            style={{
-              padding: '0.5rem 1rem',
-              backgroundColor: connecting ? '#ccc' : '#1DA1F2',
-              color: 'white',
-              border: 'none',
-              borderRadius: '4px',
-              cursor: connecting ? 'not-allowed' : 'pointer',
-            }}
-          >
+      {/* Connected Accounts */}
+      <section className="mb-10">
+        <div className="flex items-center justify-between mb-4">
+          <h2 className="section-title text-xl">Connected Accounts</h2>
+          <button onClick={handleConnectX} disabled={connecting} className="btn-primary text-sm">
             {connecting ? 'Connecting...' : '+ Connect X/Twitter'}
           </button>
         </div>
 
         {connections.length === 0 ? (
-          <div style={{ padding: '2rem', border: '1px solid #ddd', borderRadius: '8px', textAlign: 'center', color: '#666' }}>
-            <p>No accounts connected yet. Click "+ Connect X/Twitter" to get started.</p>
+          <div className="glass-panel p-8 text-center">
+            <div className="w-12 h-12 rounded-xl bg-white/[0.04] flex items-center justify-center mx-auto mb-3">
+              <svg className="w-6 h-6 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M13.19 8.688a4.5 4.5 0 011.242 7.244l-4.5 4.5a4.5 4.5 0 01-6.364-6.364l1.757-1.757m9.86-7.94l-1.757 1.757a4.5 4.5 0 00-6.364 6.364l4.5-4.5a4.5 4.5 0 017.244 1.242z" />
+              </svg>
+            </div>
+            <p className="text-gray-400 text-sm">No accounts connected. Click the button above to connect X/Twitter.</p>
           </div>
         ) : (
-          <div style={{ display: 'grid', gap: '1rem' }}>
+          <div className="grid gap-3">
             {connections.map((conn) => (
-              <div
-                key={conn.id}
-                style={{
-                  padding: '1rem',
-                  border: '1px solid #ddd',
-                  borderRadius: '8px',
-                  backgroundColor: 'white',
-                  display: 'flex',
-                  justifyContent: 'space-between',
-                  alignItems: 'center',
-                }}
-              >
-                <div>
-                  <div style={{ fontWeight: '600', marginBottom: '0.25rem' }}>
-                    {conn.platform === 'x' ? 'X (Twitter)' : conn.platform} - @{conn.username}
+              <div key={conn.id} className="glass-panel p-4 flex items-center justify-between">
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 rounded-xl bg-sky-500/20 flex items-center justify-center">
+                    <span className="text-sky-400 text-sm font-bold">{conn.platform === 'x' ? 'X' : conn.platform[0].toUpperCase()}</span>
                   </div>
-                  <div style={{ fontSize: '0.875rem', color: '#666' }}>
-                    Connected: {new Date(conn.createdAt).toLocaleDateString()}
+                  <div>
+                    <p className="text-white font-medium">@{conn.username}</p>
+                    <p className="text-xs text-gray-500">
+                      {conn.platform === 'x' ? 'X (Twitter)' : conn.platform} - Connected {new Date(conn.createdAt).toLocaleDateString()}
+                    </p>
                   </div>
                 </div>
-                <button
-                  onClick={() => handleDisconnect(conn.id)}
-                  style={{
-                    padding: '0.5rem 1rem',
-                    backgroundColor: 'white',
-                    color: '#dc2626',
-                    border: '1px solid #dc2626',
-                    borderRadius: '4px',
-                    cursor: 'pointer',
-                  }}
-                >
+                <button onClick={() => handleDisconnect(conn.id)} className="btn-danger text-sm py-1.5 px-3">
                   Disconnect
                 </button>
               </div>
             ))}
           </div>
         )}
-      </div>
+      </section>
 
-      {/* Scheduled Posts Section */}
-      <div>
-        <h2 style={{ fontSize: '1.5rem', fontWeight: '600', marginBottom: '1rem' }}>Scheduled Posts</h2>
+      {/* Scheduled Posts */}
+      <section>
+        <h2 className="section-title text-xl mb-4">Scheduled Posts</h2>
 
         {posts.length === 0 ? (
-          <div style={{ padding: '2rem', border: '1px solid #ddd', borderRadius: '8px', textAlign: 'center', color: '#666' }}>
-            <p>No scheduled posts yet. Create posts from your campaigns!</p>
+          <div className="glass-panel p-8 text-center">
+            <p className="text-gray-400 text-sm">No scheduled posts yet. Create posts from your campaigns.</p>
           </div>
         ) : (
-          <>
-            {/* Pending Posts */}
+          <div className="space-y-8">
             {pendingPosts.length > 0 && (
-              <div style={{ marginBottom: '2rem' }}>
-                <h3 style={{ fontSize: '1.25rem', fontWeight: '600', marginBottom: '0.75rem', color: '#0070f3' }}>
+              <div>
+                <h3 className="text-sm font-semibold text-brand-400 uppercase tracking-wider mb-3">
                   Pending ({pendingPosts.length})
                 </h3>
-                <div style={{ display: 'grid', gap: '1rem' }}>
+                <div className="space-y-3">
                   {pendingPosts.map((post) => (
-                    <div
-                      key={post.id}
-                      style={{
-                        padding: '1.5rem',
-                        border: '1px solid #ddd',
-                        borderRadius: '8px',
-                        backgroundColor: 'white',
-                      }}
-                    >
-                      <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '0.75rem' }}>
-                        <div>
-                          <span style={{ fontWeight: '600', color: '#0070f3' }}>
+                    <div key={post.id} className="glass-panel p-5">
+                      <div className="flex items-center justify-between mb-3">
+                        <div className="flex items-center gap-2">
+                          <span className="status-pill bg-sky-500/20 text-sky-400">
                             {post.socialConnection.platform.toUpperCase()}
                           </span>
-                          {' - '}
-                          <span style={{ color: '#666' }}>@{post.socialConnection.username}</span>
+                          <span className="text-gray-400 text-sm">@{post.socialConnection.username}</span>
                         </div>
-                        <div style={{ fontSize: '0.875rem', color: '#666' }}>
+                        <span className="text-xs text-gray-500">
                           Scheduled: {new Date(post.scheduledFor).toLocaleString()}
-                        </div>
+                        </span>
                       </div>
-                      <div
-                        style={{
-                          padding: '0.75rem',
-                          backgroundColor: '#f9f9f9',
-                          borderRadius: '4px',
-                          marginBottom: '0.75rem',
-                          whiteSpace: 'pre-wrap',
-                          fontFamily: 'inherit',
-                        }}
-                      >
+                      <div className="bg-white/[0.03] rounded-xl p-4 mb-3 text-sm text-gray-300 whitespace-pre-wrap">
                         {post.content}
                       </div>
-                      <button
-                        onClick={() => handleCancelPost(post.id)}
-                        style={{
-                          padding: '0.5rem 1rem',
-                          backgroundColor: 'white',
-                          color: '#dc2626',
-                          border: '1px solid #dc2626',
-                          borderRadius: '4px',
-                          cursor: 'pointer',
-                        }}
-                      >
-                        Cancel
+                      <button onClick={() => handleCancelPost(post.id)} className="btn-danger text-sm py-1.5">
+                        Cancel Post
                       </button>
                     </div>
                   ))}
@@ -261,44 +198,26 @@ export default function SchedulePage() {
               </div>
             )}
 
-            {/* Completed Posts */}
             {completedPosts.length > 0 && (
-              <div style={{ marginBottom: '2rem' }}>
-                <h3 style={{ fontSize: '1.25rem', fontWeight: '600', marginBottom: '0.75rem', color: '#10b981' }}>
+              <div>
+                <h3 className="text-sm font-semibold text-green-400 uppercase tracking-wider mb-3">
                   Posted ({completedPosts.length})
                 </h3>
-                <div style={{ display: 'grid', gap: '1rem' }}>
+                <div className="space-y-3">
                   {completedPosts.map((post) => (
-                    <div
-                      key={post.id}
-                      style={{
-                        padding: '1.5rem',
-                        border: '1px solid #ddd',
-                        borderRadius: '8px',
-                        backgroundColor: 'white',
-                      }}
-                    >
-                      <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '0.75rem' }}>
-                        <div>
-                          <span style={{ fontWeight: '600', color: '#10b981' }}>
+                    <div key={post.id} className="glass-panel p-5">
+                      <div className="flex items-center justify-between mb-3">
+                        <div className="flex items-center gap-2">
+                          <span className="status-pill bg-green-500/20 text-green-400">
                             {post.socialConnection.platform.toUpperCase()}
                           </span>
-                          {' - '}
-                          <span style={{ color: '#666' }}>@{post.socialConnection.username}</span>
+                          <span className="text-gray-400 text-sm">@{post.socialConnection.username}</span>
                         </div>
-                        <div style={{ fontSize: '0.875rem', color: '#666' }}>
+                        <span className="text-xs text-gray-500">
                           Posted: {post.postedAt ? new Date(post.postedAt).toLocaleString() : 'N/A'}
-                        </div>
+                        </span>
                       </div>
-                      <div
-                        style={{
-                          padding: '0.75rem',
-                          backgroundColor: '#f9f9f9',
-                          borderRadius: '4px',
-                          whiteSpace: 'pre-wrap',
-                          fontFamily: 'inherit',
-                        }}
-                      >
+                      <div className="bg-white/[0.03] rounded-xl p-4 text-sm text-gray-300 whitespace-pre-wrap">
                         {post.content}
                       </div>
                     </div>
@@ -307,58 +226,31 @@ export default function SchedulePage() {
               </div>
             )}
 
-            {/* Failed Posts */}
             {failedPosts.length > 0 && (
               <div>
-                <h3 style={{ fontSize: '1.25rem', fontWeight: '600', marginBottom: '0.75rem', color: '#dc2626' }}>
+                <h3 className="text-sm font-semibold text-red-400 uppercase tracking-wider mb-3">
                   Failed ({failedPosts.length})
                 </h3>
-                <div style={{ display: 'grid', gap: '1rem' }}>
+                <div className="space-y-3">
                   {failedPosts.map((post) => (
-                    <div
-                      key={post.id}
-                      style={{
-                        padding: '1.5rem',
-                        border: '1px solid #dc2626',
-                        borderRadius: '8px',
-                        backgroundColor: '#fef2f2',
-                      }}
-                    >
-                      <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '0.75rem' }}>
-                        <div>
-                          <span style={{ fontWeight: '600', color: '#dc2626' }}>
+                    <div key={post.id} className="glass-panel p-5 border-red-500/20">
+                      <div className="flex items-center justify-between mb-3">
+                        <div className="flex items-center gap-2">
+                          <span className="status-pill bg-red-500/20 text-red-400">
                             {post.socialConnection.platform.toUpperCase()}
                           </span>
-                          {' - '}
-                          <span style={{ color: '#666' }}>@{post.socialConnection.username}</span>
+                          <span className="text-gray-400 text-sm">@{post.socialConnection.username}</span>
                         </div>
-                        <div style={{ fontSize: '0.875rem', color: '#666' }}>
-                          Failed at: {new Date(post.scheduledFor).toLocaleString()}
-                        </div>
+                        <span className="text-xs text-gray-500">
+                          {new Date(post.scheduledFor).toLocaleString()}
+                        </span>
                       </div>
-                      <div
-                        style={{
-                          padding: '0.75rem',
-                          backgroundColor: 'white',
-                          borderRadius: '4px',
-                          marginBottom: '0.75rem',
-                          whiteSpace: 'pre-wrap',
-                          fontFamily: 'inherit',
-                        }}
-                      >
+                      <div className="bg-white/[0.03] rounded-xl p-4 text-sm text-gray-300 whitespace-pre-wrap mb-3">
                         {post.content}
                       </div>
                       {post.error && (
-                        <div
-                          style={{
-                            padding: '0.5rem',
-                            backgroundColor: '#fee2e2',
-                            borderRadius: '4px',
-                            fontSize: '0.875rem',
-                            color: '#dc2626',
-                          }}
-                        >
-                          Error: {post.error}
+                        <div className="bg-red-500/10 border border-red-500/20 rounded-xl p-3 text-sm text-red-400">
+                          {post.error}
                         </div>
                       )}
                     </div>
@@ -366,9 +258,9 @@ export default function SchedulePage() {
                 </div>
               </div>
             )}
-          </>
+          </div>
         )}
-      </div>
+      </section>
     </div>
   )
 }

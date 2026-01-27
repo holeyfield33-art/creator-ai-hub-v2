@@ -5,6 +5,21 @@ import { useRouter } from 'next/navigation'
 import { useAuth } from '@/lib/auth-context'
 import { listCampaigns, createCampaign, Campaign } from '@/lib/campaigns-api'
 
+function getStatusClass(status: string) {
+  switch (status) {
+    case 'draft':
+      return 'status-draft'
+    case 'processing':
+      return 'status-processing'
+    case 'ready':
+      return 'status-ready'
+    case 'active':
+      return 'status-active'
+    default:
+      return 'status-draft'
+  }
+}
+
 export default function CampaignsPage() {
   const { session, loading: authLoading } = useAuth()
   const router = useRouter()
@@ -12,6 +27,9 @@ export default function CampaignsPage() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [creating, setCreating] = useState(false)
+  const [showModal, setShowModal] = useState(false)
+  const [newName, setNewName] = useState('')
+  const [newDescription, setNewDescription] = useState('')
 
   useEffect(() => {
     if (!authLoading && !session) {
@@ -39,15 +57,19 @@ export default function CampaignsPage() {
     }
   }
 
-  async function handleCreateCampaign() {
-    if (!session?.access_token) return
-
-    const name = prompt('Campaign name:')
-    if (!name || name.trim().length === 0) return
+  async function handleCreateCampaign(e: React.FormEvent) {
+    e.preventDefault()
+    if (!session?.access_token || !newName.trim()) return
 
     try {
       setCreating(true)
-      const campaign = await createCampaign(session.access_token, { name: name.trim() })
+      const campaign = await createCampaign(session.access_token, {
+        name: newName.trim(),
+        description: newDescription.trim() || undefined,
+      })
+      setShowModal(false)
+      setNewName('')
+      setNewDescription('')
       router.push(`/app/campaigns/${campaign.id}`)
     } catch (err) {
       alert(err instanceof Error ? err.message : 'Failed to create campaign')
@@ -57,100 +79,158 @@ export default function CampaignsPage() {
 
   if (authLoading || (loading && campaigns.length === 0)) {
     return (
-      <div style={{ padding: '2rem', textAlign: 'center' }}>
-        <p>Loading...</p>
+      <div className="flex items-center justify-center h-full">
+        <div className="text-gray-400">Loading campaigns...</div>
       </div>
     )
   }
 
   return (
-    <div style={{ padding: '2rem', maxWidth: '1200px', margin: '0 auto' }}>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '2rem' }}>
-        <h1 style={{ fontSize: '2rem', fontWeight: 'bold' }}>Campaigns</h1>
-        <button
-          onClick={handleCreateCampaign}
-          disabled={creating}
-          style={{
-            padding: '0.5rem 1rem',
-            backgroundColor: creating ? '#ccc' : '#0070f3',
-            color: 'white',
-            border: 'none',
-            borderRadius: '4px',
-            cursor: creating ? 'not-allowed' : 'pointer',
-            fontSize: '1rem',
-          }}
-        >
-          {creating ? 'Creating...' : 'New Campaign'}
+    <div className="p-8 max-w-5xl mx-auto">
+      {/* Header */}
+      <div className="flex items-center justify-between mb-8">
+        <div>
+          <h1 className="text-3xl font-bold text-white tracking-tight">Campaigns</h1>
+          <p className="text-gray-400 mt-1">Manage your content campaigns</p>
+        </div>
+        <button onClick={() => setShowModal(true)} className="btn-primary">
+          <svg className="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
+          </svg>
+          New Campaign
         </button>
       </div>
 
+      {/* Error */}
       {error && (
-        <div style={{ padding: '1rem', backgroundColor: '#fee', border: '1px solid #fcc', borderRadius: '4px', marginBottom: '1rem' }}>
-          <p style={{ color: '#c00' }}>{error}</p>
+        <div className="mb-6 p-4 rounded-xl bg-red-500/10 border border-red-500/20 text-red-400 text-sm">
+          {error}
+          <button onClick={loadCampaigns} className="ml-3 underline hover:no-underline">
+            Retry
+          </button>
         </div>
       )}
 
+      {/* Campaign List */}
       {campaigns.length === 0 ? (
-        <div style={{ textAlign: 'center', padding: '3rem', border: '2px dashed #ddd', borderRadius: '8px' }}>
-          <p style={{ fontSize: '1.2rem', color: '#666', marginBottom: '1rem' }}>No campaigns yet</p>
-          <p style={{ color: '#999' }}>Click "New Campaign" to get started</p>
+        <div className="glass-panel p-12 text-center">
+          <div className="w-16 h-16 rounded-2xl bg-white/[0.04] flex items-center justify-center mx-auto mb-4">
+            <svg className="w-8 h-8 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M3.75 12h16.5m-16.5 3.75h16.5M3.75 19.5h16.5M5.625 4.5h12.75a1.875 1.875 0 010 3.75H5.625a1.875 1.875 0 010-3.75z" />
+            </svg>
+          </div>
+          <h3 className="text-lg font-semibold text-white mb-2">No campaigns yet</h3>
+          <p className="text-gray-400 mb-6">Create your first campaign to start generating content.</p>
+          <button onClick={() => setShowModal(true)} className="btn-primary">
+            Create Campaign
+          </button>
         </div>
       ) : (
-        <div style={{ display: 'grid', gap: '1rem' }}>
+        <div className="grid gap-4">
           {campaigns.map((campaign) => (
             <div
               key={campaign.id}
               onClick={() => router.push(`/app/campaigns/${campaign.id}`)}
-              style={{
-                padding: '1.5rem',
-                border: '1px solid #ddd',
-                borderRadius: '8px',
-                cursor: 'pointer',
-                transition: 'all 0.2s',
-                backgroundColor: 'white',
-              }}
-              onMouseEnter={(e) => {
-                e.currentTarget.style.borderColor = '#0070f3'
-                e.currentTarget.style.boxShadow = '0 2px 8px rgba(0,0,0,0.1)'
-              }}
-              onMouseLeave={(e) => {
-                e.currentTarget.style.borderColor = '#ddd'
-                e.currentTarget.style.boxShadow = 'none'
-              }}
+              className="glass-panel-hover p-6 cursor-pointer group"
             >
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'start' }}>
-                <div style={{ flex: 1 }}>
-                  <h2 style={{ fontSize: '1.25rem', fontWeight: '600', marginBottom: '0.5rem' }}>
-                    {campaign.name}
-                  </h2>
+              <div className="flex items-start justify-between">
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-3 mb-2">
+                    <h2 className="text-lg font-semibold text-white group-hover:text-brand-400 transition-colors truncate">
+                      {campaign.name}
+                    </h2>
+                    <span className={getStatusClass(campaign.status)}>
+                      {campaign.status}
+                    </span>
+                  </div>
                   {campaign.description && (
-                    <p style={{ color: '#666', marginBottom: '0.5rem' }}>{campaign.description}</p>
+                    <p className="text-gray-400 text-sm mb-3 line-clamp-2">{campaign.description}</p>
                   )}
-                  <div style={{ display: 'flex', gap: '1rem', fontSize: '0.875rem', color: '#999' }}>
-                    <span>Status: {campaign.status}</span>
+                  <div className="flex items-center gap-4 text-xs text-gray-500">
+                    <span>Created {new Date(campaign.createdAt).toLocaleDateString()}</span>
                     {campaign._count && (
                       <>
-                        <span>Sources: {campaign._count.sources}</span>
-                        <span>Assets: {campaign._count.generatedAssets}</span>
+                        <span className="flex items-center gap-1">
+                          <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19.5 14.25v-2.625a3.375 3.375 0 00-3.375-3.375h-1.5A1.125 1.125 0 0113.5 7.125v-1.5a3.375 3.375 0 00-3.375-3.375H8.25m0 12.75h7.5m-7.5 3H12M10.5 2.25H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 00-9-9z" />
+                          </svg>
+                          {campaign._count.sources} sources
+                        </span>
+                        <span className="flex items-center gap-1">
+                          <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9.813 15.904L9 18.75l-.813-2.846a4.5 4.5 0 00-3.09-3.09L2.25 12l2.846-.813a4.5 4.5 0 003.09-3.09L9 5.25l.813 2.846a4.5 4.5 0 003.09 3.09L15.75 12l-2.846.813a4.5 4.5 0 00-3.09 3.09z" />
+                          </svg>
+                          {campaign._count.generatedAssets} assets
+                        </span>
                       </>
                     )}
                   </div>
                 </div>
-                <span
-                  style={{
-                    padding: '0.25rem 0.75rem',
-                    backgroundColor: campaign.status === 'active' ? '#d4f4dd' : '#f0f0f0',
-                    color: campaign.status === 'active' ? '#0d7d2d' : '#666',
-                    borderRadius: '12px',
-                    fontSize: '0.75rem',
-                    fontWeight: '500',
-                  }}
-                >
-                  {campaign.status}
-                </span>
+                <svg className="w-5 h-5 text-gray-500 group-hover:text-brand-400 transition-colors flex-shrink-0 ml-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8.25 4.5l7.5 7.5-7.5 7.5" />
+                </svg>
               </div>
             </div>
           ))}
+        </div>
+      )}
+
+      {/* Create Campaign Modal */}
+      {showModal && (
+        <div
+          className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-4"
+          onClick={() => setShowModal(false)}
+        >
+          <div
+            className="glass-panel p-8 w-full max-w-lg"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <h2 className="text-xl font-bold text-white mb-6">Create New Campaign</h2>
+            <form onSubmit={handleCreateCampaign} className="space-y-5">
+              <div>
+                <label className="block text-sm font-medium text-gray-300 mb-2">
+                  Campaign Name
+                </label>
+                <input
+                  type="text"
+                  value={newName}
+                  onChange={(e) => setNewName(e.target.value)}
+                  placeholder="e.g. Q1 Product Launch"
+                  required
+                  autoFocus
+                  className="input-field"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-300 mb-2">
+                  Description (optional)
+                </label>
+                <textarea
+                  value={newDescription}
+                  onChange={(e) => setNewDescription(e.target.value)}
+                  placeholder="Brief description of this campaign..."
+                  rows={3}
+                  className="input-field resize-none"
+                />
+              </div>
+              <div className="flex justify-end gap-3 pt-2">
+                <button
+                  type="button"
+                  onClick={() => setShowModal(false)}
+                  className="btn-secondary"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={creating || !newName.trim()}
+                  className="btn-primary"
+                >
+                  {creating ? 'Creating...' : 'Create Campaign'}
+                </button>
+              </div>
+            </form>
+          </div>
         </div>
       )}
     </div>
