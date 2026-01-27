@@ -6,6 +6,8 @@ import {
   listCampaignsHandler,
   getCampaignHandler,
   uploadCampaignSourceHandler,
+  generateAssetsHandler,
+  updateAssetHandler,
 } from './routes/campaigns'
 
 const fastify = Fastify({
@@ -32,6 +34,10 @@ fastify.post('/api/campaigns', createCampaignHandler)
 fastify.get('/api/campaigns', listCampaignsHandler)
 fastify.get('/api/campaigns/:id', getCampaignHandler)
 fastify.post('/api/campaigns/:id/upload', uploadCampaignSourceHandler)
+fastify.post('/api/campaigns/:id/generate-assets', generateAssetsHandler)
+
+// Asset endpoints
+fastify.put('/api/assets/:id', updateAssetHandler)
 
 // Start server
 const start = async () => {

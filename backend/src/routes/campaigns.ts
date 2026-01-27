@@ -233,3 +233,129 @@ export async function uploadCampaignSourceHandler(
     return reply.status(500).send({ error: 'Failed to upload source' })
   }
 }
+
+// POST /api/campaigns/:id/generate-assets - Generate assets for channels
+export async function generateAssetsHandler(
+  request: FastifyRequest<{
+    Params: { id: string }
+    Body: { channels: string[] }
+  }>,
+  reply: FastifyReply
+) {
+  const userId = await getUserFromToken(request)
+  if (!userId) {
+    return reply.status(401).send({ error: 'Unauthorized' })
+  }
+
+  const { id } = request.params
+  const { channels } = request.body
+
+  if (!channels || !Array.isArray(channels) || channels.length === 0) {
+    return reply.status(400).send({ error: 'Channels array is required' })
+  }
+
+  try {
+    // Verify campaign belongs to user and has analysis
+    const campaign = await prisma.campaign.findFirst({
+      where: { id, userId },
+      include: {
+        analyses: {
+          where: { analysisType: 'content_summary' },
+          orderBy: { createdAt: 'desc' },
+          take: 1,
+        },
+      },
+    })
+
+    if (!campaign) {
+      return reply.status(404).send({ error: 'Campaign not found' })
+    }
+
+    if (!campaign.analyses || campaign.analyses.length === 0) {
+      return reply.status(400).send({ error: 'Campaign must be analyzed first (upload text)' })
+    }
+
+    const analysis = campaign.analyses[0]
+
+    // Create a generation job for each channel
+    const jobs = await Promise.all(
+      channels.map((channel) =>
+        prisma.job.create({
+          data: {
+            type: 'generate_asset',
+            status: 'pending',
+            payload: {
+              campaignId: id,
+              analysisId: analysis.id,
+              channel,
+              summary: (analysis.results as any)?.summary,
+              keyPoints: (analysis.results as any)?.key_points,
+              hooks: (analysis.results as any)?.hooks,
+            },
+          },
+        })
+      )
+    )
+
+    request.log.info(`Created ${jobs.length} asset generation jobs for campaign ${id}`)
+
+    return reply.status(201).send({
+      message: `Created ${jobs.length} asset generation job(s)`,
+      jobs: jobs.map((j) => ({ id: j.id, type: j.type, status: j.status })),
+    })
+  } catch (error) {
+    request.log.error(error)
+    return reply.status(500).send({ error: 'Failed to generate assets' })
+  }
+}
+
+// PUT /api/assets/:id - Update asset content
+export async function updateAssetHandler(
+  request: FastifyRequest<{
+    Params: { id: string }
+    Body: { content: string }
+  }>,
+  reply: FastifyReply
+) {
+  const userId = await getUserFromToken(request)
+  if (!userId) {
+    return reply.status(401).send({ error: 'Unauthorized' })
+  }
+
+  const { id } = request.params
+  const { content } = request.body
+
+  if (!content || content.trim().length === 0) {
+    return reply.status(400).send({ error: 'Content is required' })
+  }
+
+  try {
+    // Verify asset belongs to user's campaign
+    const asset = await prisma.generatedAsset.findFirst({
+      where: { id },
+      include: {
+        campaign: {
+          select: { userId: true },
+        },
+      },
+    })
+
+    if (!asset || asset.campaign.userId !== userId) {
+      return reply.status(404).send({ error: 'Asset not found' })
+    }
+
+    // Update asset content
+    const updatedAsset = await prisma.generatedAsset.update({
+      where: { id },
+      data: {
+        content: content.trim(),
+        status: 'approved', // Mark as approved when manually edited
+      },
+    })
+
+    return reply.send(updatedAsset)
+  } catch (error) {
+    request.log.error(error)
+    return reply.status(500).send({ error: 'Failed to update asset' })
+  }
+}

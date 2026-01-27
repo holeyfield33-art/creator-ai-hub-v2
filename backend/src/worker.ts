@@ -1,6 +1,7 @@
 import { PrismaClient } from '@prisma/client'
 import { createAIProvider, chunkText } from './lib/ai-provider'
 import { buildSummarizePrompt } from './prompts/summarize'
+import { buildGenerateAssetPrompt } from './prompts/generate-assets'
 
 const prisma = new PrismaClient()
 const aiProvider = createAIProvider()
@@ -83,6 +84,57 @@ const jobProcessors: JobProcessor = {
       status: 'completed',
       analysisId: campaignAnalysis.id,
       summary: analysis.summary,
+      tokenUsage: response.usage,
+    }
+  },
+  
+  generate_asset: async (payload: any) => {
+    console.log('Processing generate_asset job:', payload)
+    
+    const { campaignId, channel, summary, keyPoints, hooks } = payload
+    
+    if (!campaignId || !channel || !summary) {
+      throw new Error('Missing required fields: campaignId, channel, summary')
+    }
+    
+    // Build prompt for asset generation
+    const prompt = buildGenerateAssetPrompt(
+      channel,
+      summary,
+      keyPoints || [],
+      hooks || []
+    )
+    
+    // Generate content using AI
+    const response = await aiProvider.complete(prompt, {
+      maxTokens: 500,
+      temperature: 0.8, // Higher temperature for more creative output
+    })
+    
+    const content = response.content.trim()
+    
+    // Create generated asset in database
+    const asset = await prisma.generatedAsset.create({
+      data: {
+        campaignId,
+        assetType: channel,
+        content,
+        status: 'generated',
+        metadata: {
+          channel,
+          generatedAt: new Date().toISOString(),
+          tokenUsage: response.usage,
+        },
+      },
+    })
+    
+    console.log(`✅ Generated ${channel} asset for campaign ${campaignId}`)
+    
+    return {
+      status: 'completed',
+      assetId: asset.id,
+      channel,
+      contentLength: content.length,
       tokenUsage: response.usage,
     }
   },
