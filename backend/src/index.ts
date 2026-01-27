@@ -1,5 +1,6 @@
 import Fastify from 'fastify'
 import cors from '@fastify/cors'
+import { getMeHandler } from './routes/me'
 
 const fastify = Fastify({
   logger: true,
@@ -16,6 +17,9 @@ fastify.register(cors, {
 fastify.get('/health', async (request, reply) => {
   return { ok: true }
 })
+
+// Auth endpoint
+fastify.get('/api/me', getMeHandler)
 
 // Start server
 const start = async () => {
