@@ -1,6 +1,12 @@
 import Fastify from 'fastify'
 import cors from '@fastify/cors'
 import { getMeHandler } from './routes/me'
+import {
+  createCampaignHandler,
+  listCampaignsHandler,
+  getCampaignHandler,
+  uploadCampaignSourceHandler,
+} from './routes/campaigns'
 
 const fastify = Fastify({
   logger: true,
@@ -20,6 +26,12 @@ fastify.get('/health', async (request, reply) => {
 
 // Auth endpoint
 fastify.get('/api/me', getMeHandler)
+
+// Campaign endpoints
+fastify.post('/api/campaigns', createCampaignHandler)
+fastify.get('/api/campaigns', listCampaignsHandler)
+fastify.get('/api/campaigns/:id', getCampaignHandler)
+fastify.post('/api/campaigns/:id/upload', uploadCampaignSourceHandler)
 
 // Start server
 const start = async () => {
