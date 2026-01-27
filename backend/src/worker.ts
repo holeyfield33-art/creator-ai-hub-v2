@@ -2,6 +2,7 @@ import { PrismaClient } from '@prisma/client'
 import { createAIProvider, chunkText } from './lib/ai-provider'
 import { buildSummarizePrompt } from './prompts/summarize'
 import { buildGenerateAssetPrompt } from './prompts/generate-assets'
+import { fetchMetricsFromPlatform, calculateEngagementRate } from './lib/social-metrics'
 
 const prisma = new PrismaClient()
 const aiProvider = createAIProvider()
@@ -136,6 +137,79 @@ const jobProcessors: JobProcessor = {
       channel,
       contentLength: content.length,
       tokenUsage: response.usage,
+    }
+  },
+  
+  collect_metrics: async (payload: any) => {
+    console.log('Processing collect_metrics job:', payload)
+    
+    const { scheduledPostId } = payload
+    
+    if (!scheduledPostId) {
+      throw new Error('Missing required field: scheduledPostId')
+    }
+    
+    // Get the scheduled post with social connection
+    const post = await prisma.scheduledPost.findUnique({
+      where: { id: scheduledPostId },
+      include: { socialConnection: true },
+    })
+    
+    if (!post) {
+      throw new Error(`Scheduled post ${scheduledPostId} not found`)
+    }
+    
+    if (post.status !== 'posted') {
+      throw new Error(`Post ${scheduledPostId} has not been posted yet (status: ${post.status})`)
+    }
+    
+    if (!post.platformPostId) {
+      throw new Error(`Post ${scheduledPostId} has no platform post ID`)
+    }
+    
+    // Fetch metrics from the social platform
+    const metricsData = await fetchMetricsFromPlatform(
+      post.platform,
+      post.platformPostId,
+      post.socialConnection.accessToken
+    )
+    
+    // Calculate engagement rate
+    const engagementRate = calculateEngagementRate(metricsData)
+    
+    // Create or update post metric
+    const existingMetric = await prisma.postMetric.findFirst({
+      where: { scheduledPostId },
+      orderBy: { fetchedAt: 'desc' },
+    })
+    
+    // Always create a new metric entry (for historical tracking)
+    const metric = await prisma.postMetric.create({
+      data: {
+        scheduledPostId,
+        platform: post.platform,
+        externalId: post.platformPostId,
+        impressions: metricsData.impressions,
+        engagements: metricsData.engagements,
+        likes: metricsData.likes,
+        shares: metricsData.shares,
+        comments: metricsData.comments,
+        clicks: metricsData.clicks,
+        engagementRate,
+      },
+    })
+    
+    console.log(`✅ Collected metrics for post ${scheduledPostId}:`, {
+      impressions: metricsData.impressions,
+      engagements: metricsData.engagements,
+      rate: `${engagementRate.toFixed(2)}%`,
+    })
+    
+    return {
+      status: 'completed',
+      metricId: metric.id,
+      metrics: metricsData,
+      engagementRate,
     }
   },
   

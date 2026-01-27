@@ -41,6 +41,7 @@ model Campaign {
   sources           CampaignSource[]
   analyses          CampaignAnalysis[]
   generatedAssets   GeneratedAsset[]
+  campaignMetrics   CampaignMetric[]
 
   @@map("campaigns")
   @@index([userId])
@@ -162,6 +163,7 @@ model ScheduledPost {
   user                User             @relation(fields: [userId], references: [id], onDelete: Cascade)
   asset               GeneratedAsset   @relation(fields: [assetId], references: [id], onDelete: Cascade)
   socialConnection    SocialConnection @relation(fields: [socialConnectionId], references: [id], onDelete: Cascade)
+  metrics             PostMetric[]
 
   @@map("scheduled_posts")
   @@index([userId])
@@ -169,4 +171,57 @@ model ScheduledPost {
   @@index([socialConnectionId])
   @@index([scheduledFor])
   @@index([status])
+}
+
+model PostMetric {
+  id              String   @id @default(uuid())
+  scheduledPostId String
+  scheduledPost   ScheduledPost @relation(fields: [scheduledPostId], references: [id], onDelete: Cascade)
+  
+  // Metrics
+  impressions     Int      @default(0)
+  engagements     Int      @default(0)
+  likes           Int      @default(0)
+  shares          Int      @default(0)
+  comments        Int      @default(0)
+  clicks          Int      @default(0)
+  
+  // Calculated
+  engagementRate  Float?   @default(0)
+  
+  // Metadata
+  fetchedAt       DateTime @default(now())
+  platform        String   // twitter, linkedin, etc.
+  externalId      String?  // Platform-specific post ID
+  
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+  
+  @@map("post_metrics")
+  @@index([scheduledPostId])
+  @@index([platform])
+  @@index([fetchedAt])
+}
+
+model CampaignMetric {
+  id            String   @id @default(uuid())
+  campaignId    String
+  campaign      Campaign @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+  
+  // Aggregate metrics
+  totalPosts         Int      @default(0)
+  totalImpressions   Int      @default(0)
+  totalEngagements   Int      @default(0)
+  avgEngagementRate  Float?   @default(0)
+  
+  // Time-based
+  periodStart        DateTime
+  periodEnd          DateTime
+  
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+  
+  @@map("campaign_metrics")
+  @@index([campaignId])
+  @@index([periodStart, periodEnd])
 }

@@ -16,6 +16,8 @@ import {
   schedulePost,
   SocialConnection,
 } from '@/lib/social-api'
+import { getCampaignMetrics, CampaignMetrics } from '@/lib/analytics-api'
+import { format } from 'date-fns'
 
 const CHANNELS = [
   { id: 'twitter', label: 'Twitter' },
@@ -55,6 +57,11 @@ export default function CampaignDetailPage({ params }: { params: { id: string } 
   const [connections, setConnections] = useState<SocialConnection[]>([])
   const [selectedConnection, setSelectedConnection] = useState<string>('')
   const [scheduling, setScheduling] = useState(false)
+  
+  // Metrics state
+  const [campaignMetrics, setCampaignMetrics] = useState<CampaignMetrics | null>(null)
+  const [loadingMetrics, setLoadingMetrics] = useState(false)
+  const [showMetrics, setShowMetrics] = useState(false)
 
   useEffect(() => {
     if (!authLoading && !session) {
@@ -205,6 +212,21 @@ export default function CampaignDetailPage({ params }: { params: { id: string } 
         ? prev.filter(c => c !== channelId)
         : [...prev, channelId]
     )
+  }
+
+  async function loadMetrics() {
+    if (!session?.access_token) return
+
+    try {
+      setLoadingMetrics(true)
+      const metrics = await getCampaignMetrics(session.access_token, params.id)
+      setCampaignMetrics(metrics)
+      setShowMetrics(true)
+    } catch (err) {
+      alert(err instanceof Error ? err.message : 'Failed to load metrics')
+    } finally {
+      setLoadingMetrics(false)
+    }
   }
 
   if (authLoading || loading) {
@@ -619,6 +641,110 @@ export default function CampaignDetailPage({ params }: { params: { id: string } 
           </div>
         </div>
       )}
+      
+      {/* Campaign Metrics Section */}
+      <div style={{ marginTop: '3rem' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
+          <h2 style={{ fontSize: '1.5rem' }}>Campaign Metrics</h2>
+          <button
+            onClick={loadMetrics}
+            disabled={loadingMetrics}
+            style={{
+              padding: '0.5rem 1rem',
+              backgroundColor: loadingMetrics ? '#ccc' : '#0070f3',
+              color: 'white',
+              border: 'none',
+              borderRadius: '4px',
+              cursor: loadingMetrics ? 'not-allowed' : 'pointer',
+            }}
+          >
+            {loadingMetrics ? 'Loading...' : showMetrics ? 'Refresh Metrics' : 'Load Metrics'}
+          </button>
+        </div>
+
+        {showMetrics && campaignMetrics && (
+          <>
+            {/* Summary Cards */}
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '1rem', marginBottom: '2rem' }}>
+              <div style={{ backgroundColor: 'white', padding: '1.5rem', borderRadius: '8px', border: '1px solid #ddd' }}>
+                <div style={{ color: '#666', fontSize: '0.875rem', marginBottom: '0.5rem' }}>Total Posts</div>
+                <div style={{ fontSize: '2rem', fontWeight: '700' }}>{campaignMetrics.summary.totalPosts}</div>
+              </div>
+              <div style={{ backgroundColor: 'white', padding: '1.5rem', borderRadius: '8px', border: '1px solid #ddd' }}>
+                <div style={{ color: '#666', fontSize: '0.875rem', marginBottom: '0.5rem' }}>Impressions</div>
+                <div style={{ fontSize: '2rem', fontWeight: '700' }}>{campaignMetrics.summary.totalImpressions.toLocaleString()}</div>
+              </div>
+              <div style={{ backgroundColor: 'white', padding: '1.5rem', borderRadius: '8px', border: '1px solid #ddd' }}>
+                <div style={{ color: '#666', fontSize: '0.875rem', marginBottom: '0.5rem' }}>Engagements</div>
+                <div style={{ fontSize: '2rem', fontWeight: '700' }}>{campaignMetrics.summary.totalEngagements.toLocaleString()}</div>
+              </div>
+              <div style={{ backgroundColor: 'white', padding: '1.5rem', borderRadius: '8px', border: '1px solid #ddd' }}>
+                <div style={{ color: '#666', fontSize: '0.875rem', marginBottom: '0.5rem' }}>Engagement Rate</div>
+                <div style={{ fontSize: '2rem', fontWeight: '700' }}>{campaignMetrics.summary.avgEngagementRate.toFixed(2)}%</div>
+              </div>
+            </div>
+
+            {/* Post Performance Table */}
+            {campaignMetrics.posts.length > 0 && (
+              <div style={{ backgroundColor: 'white', padding: '1.5rem', borderRadius: '8px', border: '1px solid #ddd' }}>
+                <h3 style={{ fontSize: '1.25rem', marginBottom: '1rem' }}>Post Performance</h3>
+                <div style={{ overflowX: 'auto' }}>
+                  <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+                    <thead>
+                      <tr style={{ borderBottom: '2px solid #ddd' }}>
+                        <th style={{ padding: '0.75rem', textAlign: 'left', fontWeight: '600' }}>Platform</th>
+                        <th style={{ padding: '0.75rem', textAlign: 'left', fontWeight: '600' }}>Content</th>
+                        <th style={{ padding: '0.75rem', textAlign: 'left', fontWeight: '600' }}>Posted</th>
+                        <th style={{ padding: '0.75rem', textAlign: 'right', fontWeight: '600' }}>Impressions</th>
+                        <th style={{ padding: '0.75rem', textAlign: 'right', fontWeight: '600' }}>Engagements</th>
+                        <th style={{ padding: '0.75rem', textAlign: 'right', fontWeight: '600' }}>Rate</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {campaignMetrics.posts.map((post) => (
+                        <tr key={post.id} style={{ borderBottom: '1px solid #eee' }}>
+                          <td style={{ padding: '0.75rem' }}>
+                            <span style={{ 
+                              padding: '0.25rem 0.5rem', 
+                              backgroundColor: post.platform === 'x' ? '#1DA1F2' : '#0077B5',
+                              color: 'white',
+                              borderRadius: '4px',
+                              fontSize: '0.75rem',
+                              fontWeight: '600',
+                            }}>
+                              {post.platform.toUpperCase()}
+                            </span>
+                          </td>
+                          <td style={{ padding: '0.75rem', maxWidth: '300px' }}>
+                            <div style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                              {post.content}
+                            </div>
+                          </td>
+                          <td style={{ padding: '0.75rem', fontSize: '0.875rem', color: '#666' }}>
+                            {post.postedAt ? format(new Date(post.postedAt), 'MMM d, yyyy') : '-'}
+                          </td>
+                          <td style={{ padding: '0.75rem', textAlign: 'right' }}>
+                            {post.metrics ? post.metrics.impressions.toLocaleString() : '-'}
+                          </td>
+                          <td style={{ padding: '0.75rem', textAlign: 'right' }}>
+                            {post.metrics ? post.metrics.engagements.toLocaleString() : '-'}
+                          </td>
+                          <td style={{ padding: '0.75rem', textAlign: 'right', fontWeight: '600' }}>
+                            {post.metrics && post.metrics.engagementRate 
+                              ? `${post.metrics.engagementRate.toFixed(2)}%`
+                              : '-'
+                            }
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            )}
+          </>
+        )}
+      </div>
     </div>
   )
 }

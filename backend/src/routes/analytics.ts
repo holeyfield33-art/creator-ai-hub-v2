@@ -1,0 +1,348 @@
+import type { FastifyInstance } from 'fastify';
+import { PrismaClient } from '@prisma/client';
+import { verifySupabaseToken } from '../lib/supabase';
+
+const prisma = new PrismaClient();
+
+export async function analyticsRoutes(fastify: FastifyInstance) {
+  // GET /api/analytics/dashboard - Overview metrics for user
+  fastify.get('/api/analytics/dashboard', async (request, reply) => {
+    const authHeader = request.headers.authorization;
+    if (!authHeader?.startsWith('Bearer ')) {
+      return reply.status(401).send({ error: 'Unauthorized' });
+    }
+
+    const token = authHeader.substring(7);
+    const supabaseUser = await verifySupabaseToken(token);
+    if (!supabaseUser) {
+      return reply.status(401).send({ error: 'Invalid token' });
+    }
+
+    // Get or create user
+    const user = await prisma.user.upsert({
+      where: { id: supabaseUser.id },
+      update: {},
+      create: {
+        id: supabaseUser.id,
+        email: supabaseUser.email || '',
+        name: supabaseUser.user_metadata?.name,
+        password: '',
+      },
+    });
+
+    // Parse query parameters
+    const { days = '30', platform } = request.query as { days?: string; platform?: string };
+    const daysAgo = parseInt(days, 10);
+    const startDate = new Date();
+    startDate.setDate(startDate.getDate() - daysAgo);
+
+    // Build platform filter
+    const platformFilter = platform ? { platform } : {};
+
+    // Get scheduled posts with metrics
+    const posts = await prisma.scheduledPost.findMany({
+      where: {
+        userId: user.id,
+        status: 'posted',
+        postedAt: { gte: startDate },
+        ...platformFilter,
+      },
+      include: {
+        metrics: true,
+      },
+    });
+
+    // Calculate totals
+    const totalPosts = posts.length;
+    let totalImpressions = 0;
+    let totalEngagements = 0;
+    let totalLikes = 0;
+    let totalShares = 0;
+    let totalComments = 0;
+
+    posts.forEach(post => {
+      post.metrics.forEach(metric => {
+        totalImpressions += metric.impressions;
+        totalEngagements += metric.engagements;
+        totalLikes += metric.likes;
+        totalShares += metric.shares;
+        totalComments += metric.comments;
+      });
+    });
+
+    const avgEngagementRate = totalImpressions > 0 
+      ? (totalEngagements / totalImpressions) * 100 
+      : 0;
+
+    // Get platform breakdown
+    const platformBreakdown: Record<string, any> = {};
+    posts.forEach(post => {
+      if (!platformBreakdown[post.platform]) {
+        platformBreakdown[post.platform] = {
+          platform: post.platform,
+          posts: 0,
+          impressions: 0,
+          engagements: 0,
+        };
+      }
+      platformBreakdown[post.platform].posts += 1;
+      post.metrics.forEach(metric => {
+        platformBreakdown[post.platform].impressions += metric.impressions;
+        platformBreakdown[post.platform].engagements += metric.engagements;
+      });
+    });
+
+    // Get daily metrics for chart
+    const dailyMetrics: Record<string, any> = {};
+    posts.forEach(post => {
+      post.metrics.forEach(metric => {
+        const date = post.postedAt?.toISOString().split('T')[0] || '';
+        if (!dailyMetrics[date]) {
+          dailyMetrics[date] = {
+            date,
+            impressions: 0,
+            engagements: 0,
+          };
+        }
+        dailyMetrics[date].impressions += metric.impressions;
+        dailyMetrics[date].engagements += metric.engagements;
+      });
+    });
+
+    const dailyData = Object.values(dailyMetrics).sort((a: any, b: any) => 
+      a.date.localeCompare(b.date)
+    );
+
+    // Get top campaigns
+    const campaigns = await prisma.campaign.findMany({
+      where: { userId: user.id },
+      include: {
+        generatedAssets: {
+          include: {
+            scheduledPosts: {
+              where: {
+                status: 'posted',
+                postedAt: { gte: startDate },
+              },
+              include: { metrics: true },
+            },
+          },
+        },
+      },
+    });
+
+    const campaignMetrics = campaigns.map(campaign => {
+      let posts = 0;
+      let impressions = 0;
+      let engagements = 0;
+
+      campaign.generatedAssets.forEach(asset => {
+        asset.scheduledPosts.forEach(post => {
+          posts += 1;
+          post.metrics.forEach(metric => {
+            impressions += metric.impressions;
+            engagements += metric.engagements;
+          });
+        });
+      });
+
+      return {
+        id: campaign.id,
+        name: campaign.name,
+        posts,
+        impressions,
+        engagements,
+        engagementRate: impressions > 0 ? (engagements / impressions) * 100 : 0,
+      };
+    }).filter(c => c.posts > 0).sort((a, b) => b.engagements - a.engagements).slice(0, 5);
+
+    return reply.send({
+      overview: {
+        totalPosts,
+        totalImpressions,
+        totalEngagements,
+        avgEngagementRate: parseFloat(avgEngagementRate.toFixed(2)),
+        totalLikes,
+        totalShares,
+        totalComments,
+      },
+      platformBreakdown: Object.values(platformBreakdown),
+      dailyMetrics: dailyData,
+      topCampaigns: campaignMetrics,
+    });
+  });
+
+  // GET /api/analytics/campaigns/:id/metrics - Campaign-specific metrics
+  fastify.get<{ Params: { id: string } }>(
+    '/api/analytics/campaigns/:id/metrics',
+    async (request, reply) => {
+      const authHeader = request.headers.authorization;
+      if (!authHeader?.startsWith('Bearer ')) {
+        return reply.status(401).send({ error: 'Unauthorized' });
+      }
+
+      const token = authHeader.substring(7);
+      const supabaseUser = await verifySupabaseToken(token);
+      if (!supabaseUser) {
+        return reply.status(401).send({ error: 'Invalid token' });
+      }
+
+      const user = await prisma.user.upsert({
+        where: { id: supabaseUser.id },
+        update: {},
+        create: {
+          id: supabaseUser.id,
+          email: supabaseUser.email || '',
+          name: supabaseUser.user_metadata?.name,
+          password: '',
+        },
+      });
+
+      const { id: campaignId } = request.params;
+
+      // Verify campaign ownership
+      const campaign = await prisma.campaign.findFirst({
+        where: {
+          id: campaignId,
+          userId: user.id,
+        },
+      });
+
+      if (!campaign) {
+        return reply.status(404).send({ error: 'Campaign not found' });
+      }
+
+      // Get posts with metrics
+      const assets = await prisma.generatedAsset.findMany({
+        where: { campaignId },
+        include: {
+          scheduledPosts: {
+            where: { status: 'posted' },
+            include: {
+              metrics: {
+                orderBy: { fetchedAt: 'desc' },
+                take: 1, // Get most recent metrics
+              },
+            },
+          },
+        },
+      });
+
+      const posts = assets.flatMap(asset =>
+        asset.scheduledPosts.map(post => ({
+          id: post.id,
+          platform: post.platform,
+          content: post.content.substring(0, 100) + (post.content.length > 100 ? '...' : ''),
+          postedAt: post.postedAt,
+          platformPostId: post.platformPostId,
+          metrics: post.metrics[0] || null,
+        }))
+      );
+
+      // Calculate totals
+      let totalImpressions = 0;
+      let totalEngagements = 0;
+      let totalLikes = 0;
+      let totalShares = 0;
+      let totalComments = 0;
+
+      posts.forEach(post => {
+        if (post.metrics) {
+          totalImpressions += post.metrics.impressions;
+          totalEngagements += post.metrics.engagements;
+          totalLikes += post.metrics.likes;
+          totalShares += post.metrics.shares;
+          totalComments += post.metrics.comments;
+        }
+      });
+
+      const avgEngagementRate = totalImpressions > 0 
+        ? (totalEngagements / totalImpressions) * 100 
+        : 0;
+
+      return reply.send({
+        summary: {
+          totalPosts: posts.length,
+          totalImpressions,
+          totalEngagements,
+          avgEngagementRate: parseFloat(avgEngagementRate.toFixed(2)),
+          totalLikes,
+          totalShares,
+          totalComments,
+        },
+        posts: posts.sort((a, b) => {
+          const aEng = a.metrics?.engagements || 0;
+          const bEng = b.metrics?.engagements || 0;
+          return bEng - aEng;
+        }),
+      });
+    }
+  );
+
+  // POST /api/analytics/refresh - Trigger metrics collection
+  fastify.post('/api/analytics/refresh', async (request, reply) => {
+    const authHeader = request.headers.authorization;
+    if (!authHeader?.startsWith('Bearer ')) {
+      return reply.status(401).send({ error: 'Unauthorized' });
+    }
+
+    const token = authHeader.substring(7);
+    const supabaseUser = await verifySupabaseToken(token);
+    if (!supabaseUser) {
+      return reply.status(401).send({ error: 'Invalid token' });
+    }
+
+    const user = await prisma.user.upsert({
+      where: { id: supabaseUser.id },
+      update: {},
+      create: {
+        id: supabaseUser.id,
+        email: supabaseUser.email || '',
+        name: supabaseUser.user_metadata?.name,
+        password: '',
+      },
+    });
+
+    // Get posted posts without recent metrics (older than 1 hour)
+    const oneHourAgo = new Date();
+    oneHourAgo.setHours(oneHourAgo.getHours() - 1);
+
+    const posts = await prisma.scheduledPost.findMany({
+      where: {
+        userId: user.id,
+        status: 'posted',
+        platformPostId: { not: null },
+      },
+      include: {
+        metrics: {
+          orderBy: { fetchedAt: 'desc' },
+          take: 1,
+        },
+      },
+    });
+
+    const postsNeedingMetrics = posts.filter(post => {
+      if (post.metrics.length === 0) return true;
+      const lastFetch = post.metrics[0].fetchedAt;
+      return lastFetch < oneHourAgo;
+    });
+
+    // Create collect_metrics jobs
+    const jobs = await Promise.all(
+      postsNeedingMetrics.map(post =>
+        prisma.job.create({
+          data: {
+            type: 'collect_metrics',
+            status: 'pending',
+            payload: { scheduledPostId: post.id },
+          },
+        })
+      )
+    );
+
+    return reply.send({
+      message: 'Metrics collection triggered',
+      jobsCreated: jobs.length,
+    });
+  });
+}

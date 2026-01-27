@@ -18,6 +18,7 @@ import {
   listScheduledPostsHandler,
   cancelScheduledPostHandler,
 } from './routes/social'
+import { analyticsRoutes } from './routes/analytics'
 
 const fastify = Fastify({
   logger: true,
@@ -56,6 +57,9 @@ fastify.delete('/api/social/connections/:connectionId', disconnectHandler)
 fastify.post('/api/schedule', schedulePostHandler)
 fastify.get('/api/schedule', listScheduledPostsHandler)
 fastify.delete('/api/schedule/:postId', cancelScheduledPostHandler)
+
+// Analytics endpoints
+fastify.register(analyticsRoutes)
 
 // Start server
 const start = async () => {
