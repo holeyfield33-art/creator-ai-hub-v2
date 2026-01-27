@@ -11,6 +11,11 @@ import {
   CampaignDetail,
   GeneratedAsset,
 } from '@/lib/campaigns-api'
+import {
+  listConnections,
+  schedulePost,
+  SocialConnection,
+} from '@/lib/social-api'
 
 const CHANNELS = [
   { id: 'twitter', label: 'Twitter' },
@@ -41,6 +46,15 @@ export default function CampaignDetailPage({ params }: { params: { id: string } 
   const [activeTab, setActiveTab] = useState<string>('twitter')
   const [editingAssets, setEditingAssets] = useState<{ [key: string]: string }>({})
   const [savingAssets, setSavingAssets] = useState<{ [key: string]: boolean }>({})
+  
+  // Schedule modal state
+  const [scheduleModalOpen, setScheduleModalOpen] = useState(false)
+  const [scheduleAssetId, setScheduleAssetId] = useState<string | null>(null)
+  const [scheduleContent, setScheduleContent] = useState('')
+  const [scheduledFor, setScheduledFor] = useState('')
+  const [connections, setConnections] = useState<SocialConnection[]>([])
+  const [selectedConnection, setSelectedConnection] = useState<string>('')
+  const [scheduling, setScheduling] = useState(false)
 
   useEffect(() => {
     if (!authLoading && !session) {
@@ -133,6 +147,56 @@ export default function CampaignDetailPage({ params }: { params: { id: string } 
   function handleCopyAsset(content: string) {
     navigator.clipboard.writeText(content)
     alert('Copied to clipboard!')
+  }
+  
+  async function handleOpenScheduleModal(assetId: string, content: string) {
+    if (!session?.access_token) return
+    
+    // Load connections
+    try {
+      const { connections: conns } = await listConnections(session.access_token)
+      setConnections(conns)
+      
+      if (conns.length === 0) {
+        alert('Please connect a social account first. Visit the Schedule page to connect.')
+        router.push('/app/schedule')
+        return
+      }
+      
+      setScheduleAssetId(assetId)
+      setScheduleContent(content)
+      setSelectedConnection(conns[0].id)
+      
+      // Set default time to 1 hour from now
+      const defaultTime = new Date()
+      defaultTime.setHours(defaultTime.getHours() + 1)
+      setScheduledFor(defaultTime.toISOString().slice(0, 16))
+      
+      setScheduleModalOpen(true)
+    } catch (err) {
+      alert(err instanceof Error ? err.message : 'Failed to load connections')
+    }
+  }
+  
+  async function handleSchedulePost() {
+    if (!session?.access_token || !scheduleAssetId || !selectedConnection) return
+    
+    try {
+      setScheduling(true)
+      await schedulePost({
+        assetId: scheduleAssetId,
+        connectionId: selectedConnection,
+        scheduledFor,
+        content: scheduleContent,
+      }, session.access_token)
+      
+      alert('Post scheduled successfully!')
+      setScheduleModalOpen(false)
+    } catch (err) {
+      alert(err instanceof Error ? err.message : 'Failed to schedule post')
+    } finally {
+      setScheduling(false)
+    }
   }
 
   function toggleChannel(channelId: string) {
@@ -361,6 +425,19 @@ export default function CampaignDetailPage({ params }: { params: { id: string } 
                   >
                     Copy
                   </button>
+                  <button
+                    onClick={() => handleOpenScheduleModal(asset.id, editingAssets[asset.id] || '')}
+                    style={{
+                      padding: '0.5rem 1rem',
+                      backgroundColor: '#10b981',
+                      color: 'white',
+                      border: 'none',
+                      borderRadius: '4px',
+                      cursor: 'pointer',
+                    }}
+                  >
+                    Schedule
+                  </button>
                 </div>
               </div>
             ))}
@@ -415,6 +492,131 @@ export default function CampaignDetailPage({ params }: { params: { id: string } 
           >
             {uploading ? 'Uploading...' : 'Upload Text'}
           </button>
+        </div>
+      )}
+      
+      {/* Schedule Modal */}
+      {scheduleModalOpen && (
+        <div
+          style={{
+            position: 'fixed',
+            top: 0,
+            left: 0,
+            right: 0,
+            bottom: 0,
+            backgroundColor: 'rgba(0, 0, 0, 0.5)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            zIndex: 1000,
+          }}
+          onClick={() => setScheduleModalOpen(false)}
+        >
+          <div
+            style={{
+              backgroundColor: 'white',
+              borderRadius: '8px',
+              padding: '2rem',
+              maxWidth: '500px',
+              width: '90%',
+              maxHeight: '80vh',
+              overflow: 'auto',
+            }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <h2 style={{ fontSize: '1.5rem', marginBottom: '1rem' }}>Schedule Post</h2>
+            
+            <div style={{ marginBottom: '1rem' }}>
+              <label style={{ display: 'block', marginBottom: '0.5rem', fontWeight: '500' }}>
+                Social Account
+              </label>
+              <select
+                value={selectedConnection}
+                onChange={(e) => setSelectedConnection(e.target.value)}
+                style={{
+                  width: '100%',
+                  padding: '0.5rem',
+                  border: '1px solid #ddd',
+                  borderRadius: '4px',
+                  fontSize: '1rem',
+                }}
+              >
+                {connections.map((conn) => (
+                  <option key={conn.id} value={conn.id}>
+                    {conn.platform.toUpperCase()} - @{conn.username}
+                  </option>
+                ))}
+              </select>
+            </div>
+            
+            <div style={{ marginBottom: '1rem' }}>
+              <label style={{ display: 'block', marginBottom: '0.5rem', fontWeight: '500' }}>
+                Content
+              </label>
+              <textarea
+                value={scheduleContent}
+                onChange={(e) => setScheduleContent(e.target.value)}
+                style={{
+                  width: '100%',
+                  minHeight: '120px',
+                  padding: '0.5rem',
+                  border: '1px solid #ddd',
+                  borderRadius: '4px',
+                  fontSize: '1rem',
+                  fontFamily: 'inherit',
+                  resize: 'vertical',
+                }}
+              />
+            </div>
+            
+            <div style={{ marginBottom: '1.5rem' }}>
+              <label style={{ display: 'block', marginBottom: '0.5rem', fontWeight: '500' }}>
+                Schedule For
+              </label>
+              <input
+                type="datetime-local"
+                value={scheduledFor}
+                onChange={(e) => setScheduledFor(e.target.value)}
+                style={{
+                  width: '100%',
+                  padding: '0.5rem',
+                  border: '1px solid #ddd',
+                  borderRadius: '4px',
+                  fontSize: '1rem',
+                }}
+              />
+            </div>
+            
+            <div style={{ display: 'flex', gap: '0.5rem', justifyContent: 'flex-end' }}>
+              <button
+                onClick={() => setScheduleModalOpen(false)}
+                style={{
+                  padding: '0.5rem 1rem',
+                  backgroundColor: 'white',
+                  color: '#666',
+                  border: '1px solid #ddd',
+                  borderRadius: '4px',
+                  cursor: 'pointer',
+                }}
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleSchedulePost}
+                disabled={scheduling || !scheduleContent.trim() || !scheduledFor}
+                style={{
+                  padding: '0.5rem 1rem',
+                  backgroundColor: scheduling || !scheduleContent.trim() || !scheduledFor ? '#ccc' : '#10b981',
+                  color: 'white',
+                  border: 'none',
+                  borderRadius: '4px',
+                  cursor: scheduling || !scheduleContent.trim() || !scheduledFor ? 'not-allowed' : 'pointer',
+                }}
+              >
+                {scheduling ? 'Scheduling...' : 'Schedule Post'}
+              </button>
+            </div>
+          </div>
         </div>
       )}
     </div>

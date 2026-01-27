@@ -34,3 +34,30 @@ export async function fetchCurrentUser(): Promise<BackendUser | null> {
     return null
   }
 }
+
+export async function request<T = any>(
+  path: string,
+  options: {
+    method: string
+    token: string
+    body?: any
+  }
+): Promise<T> {
+  const url = `${API_BASE_URL}${path}`
+  
+  const response = await fetch(url, {
+    method: options.method,
+    headers: {
+      'Authorization': `Bearer ${options.token}`,
+      'Content-Type': 'application/json',
+    },
+    body: options.body ? JSON.stringify(options.body) : undefined,
+  })
+
+  if (!response.ok) {
+    const errorText = await response.text()
+    throw new Error(errorText || `Request failed: ${response.status}`)
+  }
+
+  return await response.json()
+}

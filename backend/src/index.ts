@@ -9,6 +9,15 @@ import {
   generateAssetsHandler,
   updateAssetHandler,
 } from './routes/campaigns'
+import {
+  connectXHandler,
+  xCallbackHandler,
+  listConnectionsHandler,
+  disconnectHandler,
+  schedulePostHandler,
+  listScheduledPostsHandler,
+  cancelScheduledPostHandler,
+} from './routes/social'
 
 const fastify = Fastify({
   logger: true,
@@ -38,6 +47,15 @@ fastify.post('/api/campaigns/:id/generate-assets', generateAssetsHandler)
 
 // Asset endpoints
 fastify.put('/api/assets/:id', updateAssetHandler)
+
+// Social/Scheduling endpoints
+fastify.get('/api/social/x/connect', connectXHandler)
+fastify.get('/api/social/x/callback', xCallbackHandler)
+fastify.get('/api/social/connections', listConnectionsHandler)
+fastify.delete('/api/social/connections/:connectionId', disconnectHandler)
+fastify.post('/api/schedule', schedulePostHandler)
+fastify.get('/api/schedule', listScheduledPostsHandler)
+fastify.delete('/api/schedule/:postId', cancelScheduledPostHandler)
 
 // Start server
 const start = async () => {

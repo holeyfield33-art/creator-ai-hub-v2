@@ -267,9 +267,118 @@ async function pollJobs() {
     if (job) {
       await processJob(job)
     }
+    
+    // Also check for due scheduled posts
+    await processScheduledPosts()
   } catch (error) {
     console.error('Error in poll cycle:', error)
   }
+}
+
+// Process scheduled posts that are due
+async function processScheduledPosts() {
+  try {
+    // Find all pending posts that are due
+    const duePosts = await prisma.scheduledPost.findMany({
+      where: {
+        status: 'pending',
+        scheduledFor: {
+          lte: new Date(),
+        },
+      },
+      include: {
+        socialConnection: true,
+      },
+      take: 10, // Process 10 at a time
+    })
+
+    if (duePosts.length === 0) {
+      return
+    }
+
+    console.log(`Found ${duePosts.length} scheduled post(s) due for posting`)
+
+    for (const post of duePosts) {
+      try {
+        // Mark as processing
+        await prisma.scheduledPost.update({
+          where: { id: post.id },
+          data: { status: 'posting' },
+        })
+
+        // Post to platform
+        if (post.platform === 'x') {
+          await postToX(post, post.socialConnection)
+        } else {
+          throw new Error(`Unsupported platform: ${post.platform}`)
+        }
+
+        // Mark as posted
+        await prisma.scheduledPost.update({
+          where: { id: post.id },
+          data: {
+            status: 'posted',
+            postedAt: new Date(),
+          },
+        })
+
+        console.log(`✅ Posted scheduled post ${post.id} to ${post.platform}`)
+      } catch (error: any) {
+        console.error(`Failed to post ${post.id}:`, error.message)
+        
+        // Mark as failed
+        await prisma.scheduledPost.update({
+          where: { id: post.id },
+          data: {
+            status: 'failed',
+            error: error.message,
+          },
+        })
+      }
+    }
+  } catch (error) {
+    console.error('Error processing scheduled posts:', error)
+  }
+}
+
+// Post to X/Twitter
+async function postToX(post: any, connection: any) {
+  const { accessToken } = connection
+  
+  // Create tweet
+  const tweetData: any = {
+    text: post.content,
+  }
+
+  // Add media if present (would need to upload first)
+  // For now, we'll just post text
+  
+  const response = await fetch('https://api.twitter.com/2/tweets', {
+    method: 'POST',
+    headers: {
+      'Authorization': `Bearer ${accessToken}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify(tweetData),
+  })
+
+  if (!response.ok) {
+    const errorText = await response.text()
+    throw new Error(`Twitter API error: ${response.status} ${errorText}`)
+  }
+
+  const result = await response.json() as any
+  
+  // Update post with platform post ID
+  await prisma.scheduledPost.update({
+    where: { id: post.id },
+    data: {
+      platformPostId: result.data.id,
+      metadata: result as any,
+    },
+  })
+
+  return result
 }
 
 async function startWorker() {
