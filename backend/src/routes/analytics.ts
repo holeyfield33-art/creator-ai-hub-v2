@@ -1,12 +1,25 @@
-import type { FastifyInstance } from 'fastify';
+import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import { PrismaClient } from '@prisma/client';
 import { verifySupabaseToken } from '../lib/supabase';
 
 const prisma = new PrismaClient();
 
+interface DashboardQuery {
+  days?: string;
+  platform?: string;
+}
+
+interface CampaignAnalyticsParams {
+  id: string;
+}
+
+interface CampaignAnalyticsQuery {
+  days?: string;
+}
+
 export async function analyticsRoutes(fastify: FastifyInstance) {
   // GET /api/analytics/dashboard - Overview metrics for user
-  fastify.get('/api/analytics/dashboard', async (request, reply) => {
+  fastify.get('/api/analytics/dashboard', async (request: FastifyRequest<{ Querystring: DashboardQuery }>, reply: FastifyReply) => {
     const authHeader = request.headers.authorization;
     if (!authHeader?.startsWith('Bearer ')) {
       return reply.status(401).send({ error: 'Unauthorized' });
@@ -60,8 +73,8 @@ export async function analyticsRoutes(fastify: FastifyInstance) {
     let totalShares = 0;
     let totalComments = 0;
 
-    posts.forEach(post => {
-      post.metrics.forEach(metric => {
+    posts.forEach((post) => {
+      post.metrics.forEach((metric) => {
         totalImpressions += metric.impressions;
         totalEngagements += metric.engagements;
         totalLikes += metric.likes;
@@ -75,8 +88,14 @@ export async function analyticsRoutes(fastify: FastifyInstance) {
       : 0;
 
     // Get platform breakdown
-    const platformBreakdown: Record<string, any> = {};
-    posts.forEach(post => {
+    interface PlatformMetrics {
+      platform: string;
+      posts: number;
+      impressions: number;
+      engagements: number;
+    }
+    const platformBreakdown: Record<string, PlatformMetrics> = {};
+    posts.forEach((post) => {
       if (!platformBreakdown[post.platform]) {
         platformBreakdown[post.platform] = {
           platform: post.platform,
@@ -86,16 +105,21 @@ export async function analyticsRoutes(fastify: FastifyInstance) {
         };
       }
       platformBreakdown[post.platform].posts += 1;
-      post.metrics.forEach(metric => {
+      post.metrics.forEach((metric) => {
         platformBreakdown[post.platform].impressions += metric.impressions;
         platformBreakdown[post.platform].engagements += metric.engagements;
       });
     });
 
     // Get daily metrics for chart
-    const dailyMetrics: Record<string, any> = {};
-    posts.forEach(post => {
-      post.metrics.forEach(metric => {
+    interface DailyMetrics {
+      date: string;
+      impressions: number;
+      engagements: number;
+    }
+    const dailyMetrics: Record<string, DailyMetrics> = {};
+    posts.forEach((post) => {
+      post.metrics.forEach((metric) => {
         const date = post.postedAt?.toISOString().split('T')[0] || '';
         if (!dailyMetrics[date]) {
           dailyMetrics[date] = {
@@ -109,7 +133,7 @@ export async function analyticsRoutes(fastify: FastifyInstance) {
       });
     });
 
-    const dailyData = Object.values(dailyMetrics).sort((a: any, b: any) => 
+    const dailyData = Object.values(dailyMetrics).sort((a, b) => 
       a.date.localeCompare(b.date)
     );
 
@@ -131,15 +155,15 @@ export async function analyticsRoutes(fastify: FastifyInstance) {
       },
     });
 
-    const campaignMetrics = campaigns.map(campaign => {
+    const campaignMetrics = campaigns.map((campaign) => {
       let posts = 0;
       let impressions = 0;
       let engagements = 0;
 
-      campaign.generatedAssets.forEach(asset => {
-        asset.scheduledPosts.forEach(post => {
+      campaign.generatedAssets.forEach((asset) => {
+        asset.scheduledPosts.forEach((post) => {
           posts += 1;
-          post.metrics.forEach(metric => {
+          post.metrics.forEach((metric) => {
             impressions += metric.impressions;
             engagements += metric.engagements;
           });
@@ -154,7 +178,7 @@ export async function analyticsRoutes(fastify: FastifyInstance) {
         engagements,
         engagementRate: impressions > 0 ? (engagements / impressions) * 100 : 0,
       };
-    }).filter(c => c.posts > 0).sort((a, b) => b.engagements - a.engagements).slice(0, 5);
+    }).filter((c) => c.posts > 0).sort((a, b) => b.engagements - a.engagements).slice(0, 5);
 
     return reply.send({
       overview: {
@@ -173,9 +197,9 @@ export async function analyticsRoutes(fastify: FastifyInstance) {
   });
 
   // GET /api/analytics/campaigns/:id/metrics - Campaign-specific metrics
-  fastify.get<{ Params: { id: string } }>(
+  fastify.get<{ Params: CampaignAnalyticsParams; Querystring: CampaignAnalyticsQuery }>(
     '/api/analytics/campaigns/:id/metrics',
-    async (request, reply) => {
+    async (request: FastifyRequest<{ Params: CampaignAnalyticsParams }>, reply: FastifyReply) => {
       const authHeader = request.headers.authorization;
       if (!authHeader?.startsWith('Bearer ')) {
         return reply.status(401).send({ error: 'Unauthorized' });
@@ -228,8 +252,8 @@ export async function analyticsRoutes(fastify: FastifyInstance) {
         },
       });
 
-      const posts = assets.flatMap(asset =>
-        asset.scheduledPosts.map(post => ({
+      const posts = assets.flatMap((asset) =>
+        asset.scheduledPosts.map((post) => ({
           id: post.id,
           platform: post.platform,
           content: post.content.substring(0, 100) + (post.content.length > 100 ? '...' : ''),
@@ -246,7 +270,7 @@ export async function analyticsRoutes(fastify: FastifyInstance) {
       let totalShares = 0;
       let totalComments = 0;
 
-      posts.forEach(post => {
+      posts.forEach((post) => {
         if (post.metrics) {
           totalImpressions += post.metrics.impressions;
           totalEngagements += post.metrics.engagements;
@@ -280,7 +304,7 @@ export async function analyticsRoutes(fastify: FastifyInstance) {
   );
 
   // POST /api/analytics/refresh - Trigger metrics collection
-  fastify.post('/api/analytics/refresh', async (request, reply) => {
+  fastify.post('/api/analytics/refresh', async (request: FastifyRequest, reply: FastifyReply) => {
     const authHeader = request.headers.authorization;
     if (!authHeader?.startsWith('Bearer ')) {
       return reply.status(401).send({ error: 'Unauthorized' });
@@ -321,7 +345,7 @@ export async function analyticsRoutes(fastify: FastifyInstance) {
       },
     });
 
-    const postsNeedingMetrics = posts.filter(post => {
+    const postsNeedingMetrics = posts.filter((post) => {
       if (post.metrics.length === 0) return true;
       const lastFetch = post.metrics[0].fetchedAt;
       return lastFetch < oneHourAgo;
@@ -329,7 +353,7 @@ export async function analyticsRoutes(fastify: FastifyInstance) {
 
     // Create collect_metrics jobs
     const jobs = await Promise.all(
-      postsNeedingMetrics.map(post =>
+      postsNeedingMetrics.map((post) =>
         prisma.job.create({
           data: {
             type: 'collect_metrics',
