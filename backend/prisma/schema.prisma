@@ -1,0 +1,117 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id        String   @id @default(uuid())
+  email     String   @unique
+  name      String?
+  password  String
+  role      String   @default("user") // user, admin
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  campaigns Campaign[]
+
+  @@map("users")
+}
+
+model Campaign {
+  id          String   @id @default(uuid())
+  name        String
+  description String?
+  status      String   @default("draft") // draft, active, paused, completed
+  budget      Float?
+  userId      String
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  user              User                @relation(fields: [userId], references: [id], onDelete: Cascade)
+  sources           CampaignSource[]
+  analyses          CampaignAnalysis[]
+  generatedAssets   GeneratedAsset[]
+
+  @@map("campaigns")
+  @@index([userId])
+  @@index([status])
+}
+
+model CampaignSource {
+  id          String   @id @default(uuid())
+  campaignId  String
+  sourceType  String   // url, text, file, social_media
+  sourceUrl   String?
+  sourceText  String?
+  metadata    Json?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  campaign Campaign @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+
+  @@map("campaign_sources")
+  @@index([campaignId])
+}
+
+model CampaignAnalysis {
+  id          String   @id @default(uuid())
+  campaignId  String
+  analysisType String  // sentiment, engagement, content_quality, audience
+  results     Json
+  summary     String?
+  score       Float?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  campaign Campaign @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+
+  @@map("campaign_analysis")
+  @@index([campaignId])
+  @@index([analysisType])
+}
+
+model GeneratedAsset {
+  id          String   @id @default(uuid())
+  campaignId  String
+  assetType   String   // text, image, video, social_post
+  content     String?
+  url         String?
+  metadata    Json?
+  status      String   @default("pending") // pending, generated, approved, rejected
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  campaign Campaign @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+
+  @@map("generated_assets")
+  @@index([campaignId])
+  @@index([assetType])
+  @@index([status])
+}
+
+model Job {
+  id          String   @id @default(uuid())
+  type        String   // analysis, generation, processing
+  status      String   @default("pending") // pending, running, completed, failed
+  payload     Json
+  result      Json?
+  error       String?
+  attempts    Int      @default(0)
+  maxAttempts Int      @default(3)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  startedAt   DateTime?
+  completedAt DateTime?
+
+  @@map("jobs")
+  @@index([type])
+  @@index([status])
+  @@index([createdAt])
+}
