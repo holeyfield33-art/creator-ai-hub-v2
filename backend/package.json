@@ -4,7 +4,19 @@
   "description": "Backend API for Creator AI Hub",
   "main": "src/index.ts",
   "scripts": {
-    "dev": "echo 'Backend dev server placeholder - to be implemented in Phase 2'"
+    "dev": "nodemon --watch src --exec ts-node src/index.ts",
+    "build": "tsc",
+    "start": "node dist/index.js"
+  },
+  "dependencies": {
+    "fastify": "^4.26.0",
+    "@fastify/cors": "^9.0.1"
+  },
+  "devDependencies": {
+    "@types/node": "^20.0.0",
+    "typescript": "^5.9.3",
+    "ts-node": "^10.9.2",
+    "nodemon": "^3.0.3"
   },
   "keywords": [],
   "author": "",
