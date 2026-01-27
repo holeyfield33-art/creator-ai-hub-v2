@@ -1,0 +1,12 @@
+{
+  "name": "@creator-ai-hub/backend",
+  "version": "1.0.0",
+  "description": "Backend API for Creator AI Hub",
+  "main": "src/index.ts",
+  "scripts": {
+    "dev": "echo 'Backend dev server placeholder - to be implemented in Phase 2'"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC"
+}

@@ -1,0 +1,12 @@
+{
+  "name": "@creator-ai-hub/frontend",
+  "version": "1.0.0",
+  "description": "Frontend for Creator AI Hub",
+  "main": "src/index.tsx",
+  "scripts": {
+    "dev": "echo 'Frontend dev server placeholder - to be implemented in Phase 3'"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC"
+}
