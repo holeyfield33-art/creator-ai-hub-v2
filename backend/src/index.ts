@@ -26,7 +26,11 @@ const fastify = Fastify({
 
 // Register CORS with Authorization header support
 fastify.register(cors, {
-  origin: true, // Allow all origins in development
+  origin: [
+    'http://localhost:3000',
+    'https://glowing-dollop-5gp9pvwjpprpfp7q9-3000.app.github.dev',
+    /\.app\.github\.dev$/,
+  ],
   credentials: true,
   allowedHeaders: ['Content-Type', 'Authorization'],
 })
