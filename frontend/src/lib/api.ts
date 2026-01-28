@@ -145,6 +145,7 @@ export async function request<T = any>(
       body: body !== undefined ? JSON.stringify(body) : undefined,
     })
   } catch (err) {
+    // Try demo mode for GET requests
     if (methodUpper === 'GET') {
       const demo = getDemoResponse(path)
       if (demo.found) {
@@ -152,6 +153,25 @@ export async function request<T = any>(
         markDemoModeActive(path)
         return demo.data as T
       }
+    }
+    // For POST to create campaign, return a demo campaign
+    if (methodUpper === 'POST' && path === '/api/campaigns') {
+      console.warn(`[API] ${methodUpper} ${url} failed; returning demo campaign until the API is available.`)
+      markDemoModeActive(path)
+      const now = new Date().toISOString()
+      return {
+        id: `demo-campaign-${Date.now()}`,
+        name: (body as any)?.name || 'Demo Campaign',
+        description: (body as any)?.description || 'This is placeholder data while the API is offline.',
+        status: 'draft',
+        budget: (body as any)?.budget || null,
+        userId: 'demo-user',
+        createdAt: now,
+        updatedAt: now,
+        sources: [],
+        analyses: [],
+        generatedAssets: [],
+      } as T
     }
     console.error(`[API] Network error: ${methodUpper} ${url}`, err)
     throw new Error(`Network error: Unable to reach the server. Please check your connection.`)
