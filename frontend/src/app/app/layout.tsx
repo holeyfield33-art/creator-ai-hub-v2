@@ -1,8 +1,10 @@
 'use client'
 
+import { useEffect, useState } from 'react'
 import Link from 'next/link'
 import { usePathname, useRouter } from 'next/navigation'
 import { useAuth } from '@/lib/auth-context'
+import { DEMO_MODE_EVENT, DEMO_MODE_STORAGE_KEY } from '@/lib/api'
 
 const NAV_ITEMS = [
   {
@@ -38,6 +40,37 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
   const pathname = usePathname()
   const router = useRouter()
   const { user, signOut } = useAuth()
+  const [demoModeActive, setDemoModeActive] = useState(false)
+  const [demoModeDismissed, setDemoModeDismissed] = useState(false)
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return
+
+    try {
+      setDemoModeActive(window.localStorage.getItem(DEMO_MODE_STORAGE_KEY) === 'true')
+      setDemoModeDismissed(window.localStorage.getItem('creatorAiDemoModeDismissed') === 'true')
+    } catch (error) {
+      console.warn('[Demo Mode] Unable to read persisted demo state.', error)
+    }
+
+    const handleDemoMode = () => {
+      setDemoModeActive(true)
+    }
+
+    window.addEventListener(DEMO_MODE_EVENT, handleDemoMode as EventListener)
+    return () => window.removeEventListener(DEMO_MODE_EVENT, handleDemoMode as EventListener)
+  }, [])
+
+  const dismissDemoMode = () => {
+    setDemoModeDismissed(true)
+    if (typeof window !== 'undefined') {
+      try {
+        window.localStorage.setItem('creatorAiDemoModeDismissed', 'true')
+      } catch (error) {
+        console.warn('[Demo Mode] Unable to persist dismissed state.', error)
+      }
+    }
+  }
 
   const handleSignOut = async () => {
     await signOut()
@@ -106,6 +139,34 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
 
       {/* Main Content */}
       <main className="flex-1 overflow-y-auto">
+        {demoModeActive && !demoModeDismissed && (
+          <div className="sticky top-0 z-30 border-b border-amber-500/20 bg-gradient-to-r from-amber-500/15 via-orange-500/10 to-amber-500/15 backdrop-blur">
+            <div className="mx-auto flex max-w-5xl flex-col gap-3 px-6 py-4 text-sm text-amber-100 md:flex-row md:items-center md:justify-between">
+              <div className="flex items-start gap-3">
+                <span className="mt-0.5 inline-flex h-9 w-9 items-center justify-center rounded-full bg-amber-500/20 text-amber-200">
+                  <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M12 9v3.75m9-.75a9 9 0 11-18 0 9 9 0 0118 0zm-9 6h.008v.008H12V18z" />
+                  </svg>
+                </span>
+                <div>
+                  <p className="text-sm font-semibold text-amber-200">Demo mode active</p>
+                  <p className="text-xs text-amber-100/80">
+                    We could not reach the backend, so you are viewing placeholder data. Set
+                    <span className="mx-1 rounded bg-amber-500/20 px-1.5 py-0.5 font-mono text-[0.65rem] text-amber-100">NEXT_PUBLIC_API_BASE_URL</span>
+                    to connect your API.
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={dismissDemoMode}
+                className="self-start rounded-full border border-amber-200/40 px-3 py-1 text-xs font-semibold text-amber-100 transition hover:border-amber-200/70 hover:text-amber-50 md:self-auto"
+              >
+                Dismiss
+              </button>
+            </div>
+          </div>
+        )}
         {children}
       </main>
     </div>
