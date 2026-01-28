@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<coverage generated="1769488722009" clover="3.2.0">
-  <project timestamp="1769488722009" name="All files">
+<coverage generated="1769572577760" clover="3.2.0">
+  <project timestamp="1769572577760" name="All files">
     <metrics statements="129" coveredstatements="64" conditionals="51" coveredconditionals="29" methods="10" coveredmethods="6" elements="190" coveredelements="99" complexity="0" loc="129" ncloc="129" packages="1" files="2" classes="2"/>
     <file name="campaigns.ts" path="/workspaces/creator-ai-hub-v2/backend/src/routes/campaigns.ts">
       <metrics statements="110" coveredstatements="47" conditionals="41" coveredconditionals="19" methods="9" coveredmethods="5"/>
