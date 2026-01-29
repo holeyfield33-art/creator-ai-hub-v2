@@ -6,6 +6,7 @@ import {
   listCampaignsHandler,
   getCampaignHandler,
   uploadCampaignSourceHandler,
+  registerCampaignSourceHandler,
   generateAssetsHandler,
   updateAssetHandler,
   deleteCampaignHandler,
@@ -51,6 +52,7 @@ fastify.get('/api/campaigns', listCampaignsHandler)
 fastify.get('/api/campaigns/:id', getCampaignHandler)
 fastify.delete('/api/campaigns/:id', deleteCampaignHandler)
 fastify.post('/api/campaigns/:id/upload', uploadCampaignSourceHandler)
+fastify.post('/api/campaigns/:id/sources', registerCampaignSourceHandler)
 fastify.post('/api/campaigns/:id/generate-assets', generateAssetsHandler)
 
 // Asset endpoints
