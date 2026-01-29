@@ -1,6 +1,7 @@
 import { FastifyRequest, FastifyReply } from 'fastify'
 import { createClient } from '@supabase/supabase-js'
 import { PrismaClient } from '@prisma/client'
+import { SUPPORTED_CHANNELS } from '../prompts/generate-assets'
 
 const prisma = new PrismaClient()
 
@@ -252,6 +253,16 @@ export async function generateAssetsHandler(
 
   if (!channels || !Array.isArray(channels) || channels.length === 0) {
     return reply.status(400).send({ error: 'Channels array is required' })
+  }
+
+  // Validate that all channels are supported
+  const invalidChannels = channels.filter(
+    (channel) => !SUPPORTED_CHANNELS.includes(channel as typeof SUPPORTED_CHANNELS[number])
+  )
+  if (invalidChannels.length > 0) {
+    return reply.status(400).send({
+      error: `Unsupported channel(s): ${invalidChannels.join(', ')}. Supported channels: ${SUPPORTED_CHANNELS.join(', ')}`,
+    })
   }
 
   try {
