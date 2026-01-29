@@ -1,6 +1,7 @@
 import { FastifyRequest, FastifyReply } from 'fastify'
 import { PrismaClient } from '@prisma/client'
 import { createClient } from '@supabase/supabase-js'
+import crypto from 'crypto'
 
 const prisma = new PrismaClient()
 
@@ -8,6 +9,69 @@ const supabase = createClient(
   process.env.SUPABASE_URL!,
   process.env.SUPABASE_SERVICE_ROLE_KEY!
 )
+
+// In-memory store for PKCE verifiers (in production, use Redis or database)
+const pkceStore = new Map<string, { verifier: string; userId: string; timestamp: number }>()
+
+// Clean up expired PKCE entries (older than 10 minutes)
+setInterval(() => {
+  const now = Date.now()
+  for (const [key, value] of pkceStore.entries()) {
+    if (now - value.timestamp > 10 * 60 * 1000) {
+      pkceStore.delete(key)
+    }
+  }
+}, 60 * 1000) // Run every minute
+
+// Generate cryptographically secure random string
+function generateRandomString(length: number): string {
+  const characters = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-._~'
+  const randomBytes = crypto.randomBytes(length)
+  let result = ''
+  for (let i = 0; i < length; i++) {
+    result += characters[randomBytes[i] % characters.length]
+  }
+  return result
+}
+
+// Generate PKCE code verifier and challenge
+function generatePKCE(): { verifier: string; challenge: string } {
+  const verifier = generateRandomString(64)
+  const challenge = crypto
+    .createHash('sha256')
+    .update(verifier)
+    .digest('base64url')
+  return { verifier, challenge }
+}
+
+// Generate secure state with HMAC signature
+function generateState(userId: string): string {
+  const stateId = generateRandomString(32)
+  const timestamp = Date.now().toString()
+  const data = `${stateId}:${userId}:${timestamp}`
+  const secret = process.env.SUPABASE_SERVICE_ROLE_KEY || 'fallback-secret'
+  const signature = crypto.createHmac('sha256', secret).update(data).digest('base64url')
+  return `${data}:${signature}`
+}
+
+// Verify state signature
+function verifyState(state: string): { stateId: string; userId: string; timestamp: number } | null {
+  const parts = state.split(':')
+  if (parts.length !== 4) return null
+
+  const [stateId, userId, timestamp, signature] = parts
+  const data = `${stateId}:${userId}:${timestamp}`
+  const secret = process.env.SUPABASE_SERVICE_ROLE_KEY || 'fallback-secret'
+  const expectedSignature = crypto.createHmac('sha256', secret).update(data).digest('base64url')
+
+  if (signature !== expectedSignature) return null
+
+  const ts = parseInt(timestamp, 10)
+  // State expires after 10 minutes
+  if (Date.now() - ts > 10 * 60 * 1000) return null
+
+  return { stateId, userId, timestamp: ts }
+}
 
 // Helper to get user from Authorization header
 async function getUserFromAuth(authorization?: string) {
@@ -32,26 +96,37 @@ export async function connectXHandler(
 ) {
   try {
     const user = await getUserFromAuth(request.headers.authorization)
-    
+
     const clientId = process.env.X_CLIENT_ID
     const redirectUri = process.env.X_CALLBACK_URL
-    
+
     if (!clientId || !redirectUri) {
       return reply.code(500).send({ error: 'OAuth not configured' })
     }
 
-    // Store state in session/database for CSRF protection
-    const state = Buffer.from(JSON.stringify({ userId: user.id })).toString('base64')
-    
-    // Twitter OAuth 2.0 authorization URL
+    // Generate secure PKCE challenge and verifier
+    const { verifier, challenge } = generatePKCE()
+
+    // Generate secure state with HMAC signature for CSRF protection
+    const state = generateState(user.id)
+    const stateId = state.split(':')[0]
+
+    // Store PKCE verifier keyed by stateId
+    pkceStore.set(stateId, {
+      verifier,
+      userId: user.id,
+      timestamp: Date.now(),
+    })
+
+    // Twitter OAuth 2.0 authorization URL with proper PKCE
     const authUrl = `https://twitter.com/i/oauth2/authorize?` +
       `response_type=code&` +
       `client_id=${clientId}&` +
       `redirect_uri=${encodeURIComponent(redirectUri)}&` +
       `scope=tweet.read%20tweet.write%20users.read%20offline.access&` +
-      `state=${state}&` +
-      `code_challenge=challenge&` +
-      `code_challenge_method=plain`
+      `state=${encodeURIComponent(state)}&` +
+      `code_challenge=${challenge}&` +
+      `code_challenge_method=S256`
 
     return reply.send({ authUrl })
   } catch (error: any) {
@@ -66,17 +141,35 @@ export async function xCallbackHandler(
   }>,
   reply: FastifyReply
 ) {
+  const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:3000'
+
   try {
     const { code, state } = request.query
-    
+
     if (!code || !state) {
-      return reply.code(400).send({ error: 'Missing code or state' })
+      return reply.redirect(`${frontendUrl}/app/schedule?error=missing_params`)
     }
 
-    // Decode state to get userId
-    const { userId } = JSON.parse(Buffer.from(state, 'base64').toString())
-    
-    // Exchange code for access token
+    // Verify state signature and extract userId
+    const stateData = verifyState(state)
+    if (!stateData) {
+      console.error('OAuth callback: Invalid or expired state')
+      return reply.redirect(`${frontendUrl}/app/schedule?error=invalid_state`)
+    }
+
+    const { stateId, userId } = stateData
+
+    // Retrieve PKCE verifier from store
+    const pkceData = pkceStore.get(stateId)
+    if (!pkceData || pkceData.userId !== userId) {
+      console.error('OAuth callback: PKCE verifier not found or userId mismatch')
+      return reply.redirect(`${frontendUrl}/app/schedule?error=session_expired`)
+    }
+
+    // Clean up the PKCE store entry
+    pkceStore.delete(stateId)
+
+    // Exchange code for access token using the stored PKCE verifier
     const tokenResponse = await fetch('https://api.twitter.com/2/oauth2/token', {
       method: 'POST',
       headers: {
@@ -89,7 +182,7 @@ export async function xCallbackHandler(
         code,
         grant_type: 'authorization_code',
         redirect_uri: process.env.X_CALLBACK_URL!,
-        code_verifier: 'challenge',
+        code_verifier: pkceData.verifier,
       }),
     })
 
@@ -148,10 +241,10 @@ export async function xCallbackHandler(
     })
 
     // Redirect to frontend success page
-    return reply.redirect(`${process.env.FRONTEND_URL || 'http://localhost:3000'}/app/schedule?connected=true`)
+    return reply.redirect(`${frontendUrl}/app/schedule?connected=true`)
   } catch (error: any) {
     console.error('OAuth callback error:', error)
-    return reply.redirect(`${process.env.FRONTEND_URL || 'http://localhost:3000'}/app/schedule?error=true`)
+    return reply.redirect(`${frontendUrl}/app/schedule?error=callback_failed`)
   }
 }
 

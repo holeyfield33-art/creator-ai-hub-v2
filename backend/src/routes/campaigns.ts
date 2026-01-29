@@ -1,6 +1,7 @@
 import { FastifyRequest, FastifyReply } from 'fastify'
 import { createClient } from '@supabase/supabase-js'
 import { PrismaClient } from '@prisma/client'
+import { SUPPORTED_CHANNELS } from '../prompts/generate-assets'
 
 const prisma = new PrismaClient()
 
@@ -254,6 +255,16 @@ export async function generateAssetsHandler(
     return reply.status(400).send({ error: 'Channels array is required' })
   }
 
+  // Validate that all channels are supported
+  const invalidChannels = channels.filter(
+    (channel) => !SUPPORTED_CHANNELS.includes(channel as typeof SUPPORTED_CHANNELS[number])
+  )
+  if (invalidChannels.length > 0) {
+    return reply.status(400).send({
+      error: `Unsupported channel(s): ${invalidChannels.join(', ')}. Supported channels: ${SUPPORTED_CHANNELS.join(', ')}`,
+    })
+  }
+
   try {
     // Verify campaign belongs to user and has analysis
     const campaign = await prisma.campaign.findFirst({
@@ -306,6 +317,77 @@ export async function generateAssetsHandler(
   } catch (error) {
     request.log.error(error)
     return reply.status(500).send({ error: 'Failed to generate assets' })
+  }
+}
+
+// DELETE /api/campaigns/:id - Delete campaign
+export async function deleteCampaignHandler(
+  request: FastifyRequest<{ Params: { id: string } }>,
+  reply: FastifyReply
+) {
+  const userId = await getUserFromToken(request)
+  if (!userId) {
+    return reply.status(401).send({ error: 'Unauthorized' })
+  }
+
+  const { id } = request.params
+
+  try {
+    // Verify campaign belongs to user
+    const campaign = await prisma.campaign.findFirst({
+      where: { id, userId },
+    })
+
+    if (!campaign) {
+      return reply.status(404).send({ error: 'Campaign not found' })
+    }
+
+    // Delete campaign (cascade will delete related records)
+    await prisma.campaign.delete({
+      where: { id },
+    })
+
+    return reply.send({ success: true })
+  } catch (error) {
+    request.log.error(error)
+    return reply.status(500).send({ error: 'Failed to delete campaign' })
+  }
+}
+
+// GET /api/jobs/:id - Get job status
+export async function getJobStatusHandler(
+  request: FastifyRequest<{ Params: { id: string } }>,
+  reply: FastifyReply
+) {
+  const userId = await getUserFromToken(request)
+  if (!userId) {
+    return reply.status(401).send({ error: 'Unauthorized' })
+  }
+
+  const { id } = request.params
+
+  try {
+    const job = await prisma.job.findUnique({
+      where: { id },
+      select: {
+        id: true,
+        type: true,
+        status: true,
+        result: true,
+        error: true,
+        createdAt: true,
+        completedAt: true,
+      },
+    })
+
+    if (!job) {
+      return reply.status(404).send({ error: 'Job not found' })
+    }
+
+    return reply.send(job)
+  } catch (error) {
+    request.log.error(error)
+    return reply.status(500).send({ error: 'Failed to get job status' })
   }
 }
 
