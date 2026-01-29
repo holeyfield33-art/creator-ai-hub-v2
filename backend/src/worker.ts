@@ -415,10 +415,70 @@ async function processScheduledPosts() {
   }
 }
 
+// Refresh X/Twitter token if expired
+async function refreshXToken(connection: any): Promise<string> {
+  // Check if token is expired or about to expire (within 5 minutes)
+  if (connection.tokenExpiry && new Date(connection.tokenExpiry) > new Date(Date.now() + 5 * 60 * 1000)) {
+    return connection.accessToken // Token still valid
+  }
+
+  if (!connection.refreshToken) {
+    throw new Error('Token expired and no refresh token available')
+  }
+
+  console.log(`Refreshing expired X token for connection ${connection.id}`)
+
+  const clientId = process.env.X_CLIENT_ID
+  const clientSecret = process.env.X_CLIENT_SECRET
+
+  if (!clientId || !clientSecret) {
+    throw new Error('X OAuth credentials not configured')
+  }
+
+  const response = await fetch('https://api.twitter.com/2/oauth2/token', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/x-www-form-urlencoded',
+      'Authorization': `Basic ${Buffer.from(`${clientId}:${clientSecret}`).toString('base64')}`,
+    },
+    body: new URLSearchParams({
+      grant_type: 'refresh_token',
+      refresh_token: connection.refreshToken,
+    }),
+  })
+
+  if (!response.ok) {
+    const errorText = await response.text()
+    throw new Error(`Failed to refresh token: ${response.status} ${errorText}`)
+  }
+
+  const tokenData = await response.json() as any
+  const { access_token, refresh_token, expires_in } = tokenData
+
+  // Calculate new expiry
+  const tokenExpiry = expires_in
+    ? new Date(Date.now() + expires_in * 1000)
+    : null
+
+  // Update connection with new tokens
+  await prisma.socialConnection.update({
+    where: { id: connection.id },
+    data: {
+      accessToken: access_token,
+      refreshToken: refresh_token || connection.refreshToken,
+      tokenExpiry,
+    },
+  })
+
+  console.log(`Successfully refreshed X token for connection ${connection.id}`)
+  return access_token
+}
+
 // Post to X/Twitter
 async function postToX(post: any, connection: any) {
-  const { accessToken } = connection
-  
+  // Refresh token if needed
+  const accessToken = await refreshXToken(connection)
+
   // Create tweet
   const tweetData: any = {
     text: post.content,
@@ -426,7 +486,7 @@ async function postToX(post: any, connection: any) {
 
   // Add media if present (would need to upload first)
   // For now, we'll just post text
-  
+
   const response = await fetch('https://api.twitter.com/2/tweets', {
     method: 'POST',
     headers: {
@@ -442,7 +502,7 @@ async function postToX(post: any, connection: any) {
   }
 
   const result = await response.json() as any
-  
+
   // Update post with platform post ID
   await prisma.scheduledPost.update({
     where: { id: post.id },

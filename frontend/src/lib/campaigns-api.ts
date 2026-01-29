@@ -120,3 +120,68 @@ export async function uploadCampaignSource(
     body: data,
   })
 }
+
+export async function deleteCampaign(
+  token: string,
+  campaignId: string
+): Promise<{ success: boolean }> {
+  return request<{ success: boolean }>(`/api/campaigns/${campaignId}`, {
+    method: 'DELETE',
+    token,
+  })
+}
+
+export interface JobStatus {
+  id: string
+  type: string
+  status: 'pending' | 'running' | 'completed' | 'failed'
+  result?: any
+  error?: string
+  createdAt: string
+  completedAt?: string
+}
+
+export async function getJobStatus(
+  token: string,
+  jobId: string
+): Promise<JobStatus> {
+  return request<JobStatus>(`/api/jobs/${jobId}`, { token })
+}
+
+// Helper function to poll job status until complete
+export async function waitForJobs(
+  token: string,
+  jobIds: string[],
+  maxWaitMs: number = 60000,
+  pollIntervalMs: number = 2000
+): Promise<JobStatus[]> {
+  const startTime = Date.now()
+
+  while (Date.now() - startTime < maxWaitMs) {
+    const statuses = await Promise.all(
+      jobIds.map(id => getJobStatus(token, id).catch(() => null))
+    )
+
+    const validStatuses = statuses.filter((s): s is JobStatus => s !== null)
+    const allDone = validStatuses.every(
+      s => s.status === 'completed' || s.status === 'failed'
+    )
+
+    if (allDone || validStatuses.length === 0) {
+      return validStatuses
+    }
+
+    await new Promise(resolve => setTimeout(resolve, pollIntervalMs))
+  }
+
+  // Return last known statuses on timeout
+  return await Promise.all(
+    jobIds.map(id => getJobStatus(token, id).catch(() => ({
+      id,
+      type: 'unknown',
+      status: 'failed' as const,
+      error: 'Timeout waiting for job',
+      createdAt: new Date().toISOString(),
+    })))
+  )
+}

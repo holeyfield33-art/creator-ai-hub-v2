@@ -8,6 +8,8 @@ import {
   uploadCampaignSourceHandler,
   generateAssetsHandler,
   updateAssetHandler,
+  deleteCampaignHandler,
+  getJobStatusHandler,
 } from './routes/campaigns'
 import {
   connectXHandler,
@@ -47,11 +49,15 @@ fastify.get('/api/me', getMeHandler)
 fastify.post('/api/campaigns', createCampaignHandler)
 fastify.get('/api/campaigns', listCampaignsHandler)
 fastify.get('/api/campaigns/:id', getCampaignHandler)
+fastify.delete('/api/campaigns/:id', deleteCampaignHandler)
 fastify.post('/api/campaigns/:id/upload', uploadCampaignSourceHandler)
 fastify.post('/api/campaigns/:id/generate-assets', generateAssetsHandler)
 
 // Asset endpoints
 fastify.put('/api/assets/:id', updateAssetHandler)
+
+// Job endpoints
+fastify.get('/api/jobs/:id', getJobStatusHandler)
 
 // Social/Scheduling endpoints
 fastify.get('/api/social/x/connect', connectXHandler)
@@ -68,7 +74,7 @@ fastify.register(analyticsRoutes)
 // Start server
 const start = async () => {
   try {
-    const port = 3001
+    const port = parseInt(process.env.PORT || '3001', 10)
     await fastify.listen({ port, host: '0.0.0.0' })
     console.log(`Backend server listening on port ${port}`)
   } catch (err) {
