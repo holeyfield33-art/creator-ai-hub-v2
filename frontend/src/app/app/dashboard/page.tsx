@@ -26,8 +26,8 @@ export default function DashboardPage() {
         platformFilter || undefined
       )
       setMetrics(data)
-    } catch (err: any) {
-      setError(err.message)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to load metrics')
     } finally {
       setLoading(false)
     }
@@ -42,8 +42,8 @@ export default function DashboardPage() {
     try {
       setRefreshing(true)
       await refreshMetrics(session.access_token)
-    } catch (err: any) {
-      alert(`Error: ${err.message}`)
+    } catch (err) {
+      alert(`Error: ${err instanceof Error ? err.message : 'Failed to refresh metrics'}`)
     } finally {
       setRefreshing(false)
     }

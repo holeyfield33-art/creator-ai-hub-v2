@@ -23,7 +23,7 @@ export interface CampaignSource {
   sourceType: string
   sourceUrl: string | null
   sourceText: string | null
-  metadata: any
+  metadata: Record<string, unknown> | null
   createdAt: string
   updatedAt: string
 }
@@ -49,7 +49,7 @@ export interface GeneratedAsset {
   assetType: string
   content: string | null
   url: string | null
-  metadata: any
+  metadata: Record<string, unknown> | null
   status: string
   createdAt: string
   updatedAt: string
@@ -84,7 +84,7 @@ export async function generateAssets(
   token: string,
   campaignId: string,
   channels: string[]
-): Promise<{ message: string; jobs: any[] }> {
+): Promise<{ message: string; jobs: { id: string; type: string }[] }> {
   return request('/api/campaigns/' + campaignId + '/generate-assets', {
     method: 'POST',
     token,
@@ -153,7 +153,7 @@ export interface JobStatus {
   id: string
   type: string
   status: 'pending' | 'running' | 'completed' | 'failed'
-  result?: any
+  result?: Record<string, unknown> | null
   error?: string
   createdAt: string
   completedAt?: string

@@ -1,6 +1,6 @@
 import { supabase } from './supabase'
 
-const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001'
+const API_BASE_URL = process.env.NEXT_PUBLIC_BACKEND_URL || 'http://localhost:3001'
 
 export const DEMO_MODE_EVENT = 'creator-ai-demo-mode'
 export const DEMO_MODE_STORAGE_KEY = 'creatorAiDemoModeActive'
