@@ -8,6 +8,7 @@ import {
   uploadCampaignSource,
   generateAssets,
   updateAsset,
+  waitForJobs,
   CampaignDetail,
   GeneratedAsset,
 } from '@/lib/campaigns-api'
@@ -122,9 +123,20 @@ export default function CampaignDetailPage({ params }: { params: { id: string } 
     if (!session?.access_token || selectedChannels.length === 0) return
     try {
       setGenerating(true)
-      await generateAssets(session.access_token, params.id, selectedChannels)
+      const result = await generateAssets(session.access_token, params.id, selectedChannels)
       setSelectedChannels([])
-      setTimeout(() => loadCampaign(), 3000)
+
+      // Wait for jobs to complete with polling
+      if (result.jobs && result.jobs.length > 0) {
+        const jobIds = result.jobs.map(j => j.id)
+        const statuses = await waitForJobs(session.access_token, jobIds)
+        const failed = statuses.filter(s => s.status === 'failed')
+        if (failed.length > 0) {
+          console.warn('Some asset generation jobs failed:', failed)
+        }
+      }
+
+      await loadCampaign()
     } catch (err) {
       alert(err instanceof Error ? err.message : 'Failed to generate assets')
     } finally {

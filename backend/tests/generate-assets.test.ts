@@ -181,4 +181,28 @@ describe('Generate assets endpoint', () => {
       error: 'Campaign must be analyzed first (upload text)',
     });
   });
+
+  it('should return 400 with unsupported channels', async () => {
+    // Arrange
+    const request = createMockRequest({
+      headers: { authorization: 'Bearer valid-token' },
+      params: { id: testCampaign.id },
+      body: { channels: ['twitter', 'tiktok', 'snapchat'] },
+    });
+    const reply = createMockReply();
+
+    mockSupabaseClient.auth.getUser.mockResolvedValue({
+      data: { user: testUser },
+      error: null,
+    });
+
+    // Act
+    await generateAssetsHandler(request as any, reply as any);
+
+    // Assert
+    expect(reply.status).toHaveBeenCalledWith(400);
+    expect(reply.send).toHaveBeenCalledWith({
+      error: expect.stringContaining('Unsupported channel(s): tiktok, snapchat'),
+    });
+  });
 });
