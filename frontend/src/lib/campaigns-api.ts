@@ -121,6 +121,24 @@ export async function uploadCampaignSource(
   })
 }
 
+export async function registerCampaignSource(
+  token: string,
+  campaignId: string,
+  data: {
+    sourceType: string
+    sourceUrl: string
+    fileName?: string
+    mimeType?: string
+    size?: number
+  }
+): Promise<{ source: CampaignSource; analysis: CampaignAnalysis; campaign: { status: string } }> {
+  return request(`/api/campaigns/${campaignId}/sources`, {
+    method: 'POST',
+    token,
+    body: data,
+  })
+}
+
 export async function deleteCampaign(
   token: string,
   campaignId: string

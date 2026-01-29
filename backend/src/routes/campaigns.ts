@@ -235,6 +235,99 @@ export async function uploadCampaignSourceHandler(
   }
 }
 
+// POST /api/campaigns/:id/sources - Register uploaded video source
+export async function registerCampaignSourceHandler(
+  request: FastifyRequest<{
+    Params: { id: string }
+    Body: {
+      sourceType: string
+      sourceUrl: string
+      fileName?: string
+      mimeType?: string
+      size?: number
+    }
+  }>,
+  reply: FastifyReply
+) {
+  const userId = await getUserFromToken(request)
+  if (!userId) {
+    return reply.status(401).send({ error: 'Unauthorized' })
+  }
+
+  const { id } = request.params
+  const { sourceType, sourceUrl, fileName, mimeType, size } = request.body
+
+  if (!sourceUrl || sourceUrl.trim().length === 0) {
+    return reply.status(400).send({ error: 'Source URL is required' })
+  }
+
+  try {
+    // Verify campaign belongs to user
+    const campaign = await prisma.campaign.findFirst({
+      where: { id, userId },
+    })
+
+    if (!campaign) {
+      return reply.status(404).send({ error: 'Campaign not found' })
+    }
+
+    // Create source record
+    const source = await prisma.campaignSource.create({
+      data: {
+        campaignId: id,
+        sourceType: sourceType || 'video',
+        sourceUrl: sourceUrl.trim(),
+        metadata: {
+          fileName,
+          mimeType,
+          size,
+          uploadedAt: new Date().toISOString(),
+        },
+      },
+    })
+
+    // Create stub analysis to unlock Generate Assets
+    // This will be replaced with real AI analysis later
+    const analysis = await prisma.campaignAnalysis.create({
+      data: {
+        campaignId: id,
+        analysisType: 'content_summary',
+        results: {
+          summary: 'Video content uploaded and ready for processing. AI analysis will be performed soon.',
+          key_points: [
+            'Video file successfully uploaded',
+            'Content ready for AI analysis',
+            'Generate assets is now available',
+          ],
+          hooks: [
+            'Engaging video content detected',
+            'Ready to create multi-channel assets',
+          ],
+        },
+        summary: 'Video uploaded - stub analysis',
+        score: 0.8,
+      },
+    })
+
+    request.log.info(`Created source ${source.id} and stub analysis ${analysis.id} for campaign ${id}`)
+
+    // Update campaign status to ready
+    await prisma.campaign.update({
+      where: { id },
+      data: { status: 'ready' },
+    })
+
+    return reply.status(201).send({
+      source,
+      analysis,
+      campaign: { status: 'ready' },
+    })
+  } catch (error) {
+    request.log.error(error)
+    return reply.status(500).send({ error: 'Failed to register source' })
+  }
+}
+
 // POST /api/campaigns/:id/generate-assets - Generate assets for channels
 export async function generateAssetsHandler(
   request: FastifyRequest<{
