@@ -28,14 +28,23 @@ const fastify = Fastify({
 })
 
 // Register CORS with Authorization header support
+// Allow frontend origin from env or default to localhost
+const allowedOrigins = [
+  'http://localhost:3000',
+  'https://glowing-dollop-5gp9pvwjpprpfp7q9-3000.app.github.dev',
+  /\.app\.github\.dev$/,
+]
+
+// Add production frontend URL if configured
+if (process.env.FRONTEND_URL) {
+  allowedOrigins.push(process.env.FRONTEND_URL)
+}
+
 fastify.register(cors, {
-  origin: [
-    'http://localhost:3000',
-    'https://glowing-dollop-5gp9pvwjpprpfp7q9-3000.app.github.dev',
-    /\.app\.github\.dev$/,
-  ],
+  origin: allowedOrigins,
   credentials: true,
   allowedHeaders: ['Content-Type', 'Authorization'],
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
 })
 
 // Health check endpoint
