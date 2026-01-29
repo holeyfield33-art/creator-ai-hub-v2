@@ -48,7 +48,9 @@ export default function CampaignDetailPage({ params }: { params: { id: string } 
 
   // Upload state
   const [textContent, setTextContent] = useState('')
+  const [selectedFile, setSelectedFile] = useState<File | null>(null)
   const [uploading, setUploading] = useState(false)
+  const [uploadProgress, setUploadProgress] = useState<string | null>(null)
 
   // Generation state
   const [selectedChannels, setSelectedChannels] = useState<string[]>([])
@@ -102,18 +104,72 @@ export default function CampaignDetailPage({ params }: { params: { id: string } 
     }
   }
 
-  async function handleUploadText() {
-    if (!session?.access_token || !textContent.trim()) return
+  function handleFileSelect(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0]
+    if (file) {
+      setSelectedFile(file)
+      // Clear text when file is selected
+      setTextContent('')
+    }
+  }
+
+  function clearSelectedFile() {
+    setSelectedFile(null)
+    // Reset the file input
+    const fileInput = document.getElementById('file-upload') as HTMLInputElement
+    if (fileInput) fileInput.value = ''
+  }
+
+  async function handleUpload() {
+    if (!session?.access_token) return
+
+    // Must have either file or text
+    if (!selectedFile && !textContent.trim()) {
+      alert('Please select a file or paste some text content')
+      return
+    }
+
     try {
       setUploading(true)
-      await uploadCampaignSource(session.access_token, params.id, {
-        sourceType: 'text',
-        text: textContent.trim(),
-      })
-      setTextContent('')
+      setUploadProgress('Uploading...')
+
+      let result: any
+
+      if (selectedFile) {
+        // File upload
+        setUploadProgress('Processing file...')
+        result = await uploadCampaignSource(session.access_token, params.id, {
+          sourceType: 'file',
+          fileName: selectedFile.name,
+          fileSize: selectedFile.size,
+        })
+        clearSelectedFile()
+      } else {
+        // Text upload
+        result = await uploadCampaignSource(session.access_token, params.id, {
+          sourceType: 'text',
+          text: textContent.trim(),
+        })
+        setTextContent('')
+      }
+
+      // If a job was created, wait for it to complete
+      if (result?.job?.id) {
+        setUploadProgress('Analyzing content...')
+        const statuses = await waitForJobs(session.access_token, [result.job.id], 120000, 2000)
+        const status = statuses[0]
+        if (status?.status === 'failed') {
+          console.warn('Analysis job failed:', status.error)
+          setUploadProgress(null)
+          alert('Content analysis completed with warnings. You can still generate assets.')
+        }
+      }
+
+      setUploadProgress(null)
       await loadCampaign()
     } catch (err) {
-      alert(err instanceof Error ? err.message : 'Failed to upload text')
+      setUploadProgress(null)
+      alert(err instanceof Error ? err.message : 'Failed to upload content')
     } finally {
       setUploading(false)
     }
@@ -298,21 +354,84 @@ export default function CampaignDetailPage({ params }: { params: { id: string } 
         {!latestAnalysis ? (
           <div className="glass-panel p-6">
             <p className="text-gray-400 text-sm mb-4">
-              Paste your raw content below. AI will analyze it and extract key themes, hooks, and talking points.
+              Upload a video/audio file or paste a transcript. AI will analyze it and extract key themes, hooks, and talking points.
             </p>
+
+            {/* File Upload Section */}
+            <div className="mb-4">
+              <label
+                htmlFor="file-upload"
+                className={`flex flex-col items-center justify-center w-full h-32 border-2 border-dashed rounded-xl cursor-pointer transition-all duration-200 ${
+                  selectedFile
+                    ? 'border-brand-500/50 bg-brand-600/10'
+                    : 'border-white/[0.12] bg-white/[0.02] hover:bg-white/[0.04] hover:border-white/[0.2]'
+                }`}
+              >
+                {selectedFile ? (
+                  <div className="flex flex-col items-center">
+                    <svg className="w-8 h-8 text-brand-400 mb-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 12.75L11.25 15 15 9.75M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                    </svg>
+                    <span className="text-sm text-brand-300 font-medium">{selectedFile.name}</span>
+                    <span className="text-xs text-gray-500 mt-1">{(selectedFile.size / (1024 * 1024)).toFixed(2)} MB</span>
+                    <button
+                      type="button"
+                      onClick={(e) => { e.preventDefault(); clearSelectedFile(); }}
+                      className="text-xs text-red-400 hover:text-red-300 mt-2"
+                    >
+                      Remove file
+                    </button>
+                  </div>
+                ) : (
+                  <div className="flex flex-col items-center">
+                    <svg className="w-8 h-8 text-gray-500 mb-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5m-13.5-9L12 3m0 0l4.5 4.5M12 3v13.5" />
+                    </svg>
+                    <span className="text-sm text-gray-400">Click to upload video or audio</span>
+                    <span className="text-xs text-gray-600 mt-1">.mp4, .mov, .m4a, .mp3, .wav</span>
+                  </div>
+                )}
+                <input
+                  id="file-upload"
+                  type="file"
+                  className="hidden"
+                  accept="video/*,audio/*,.mp4,.mov,.m4a,.mp3,.wav"
+                  onChange={handleFileSelect}
+                  disabled={uploading}
+                />
+              </label>
+            </div>
+
+            {/* Divider */}
+            <div className="flex items-center gap-3 mb-4">
+              <div className="flex-1 h-px bg-white/[0.08]"></div>
+              <span className="text-xs text-gray-600 uppercase tracking-wider">or paste text</span>
+              <div className="flex-1 h-px bg-white/[0.08]"></div>
+            </div>
+
+            {/* Text Input */}
             <textarea
               value={textContent}
-              onChange={(e) => setTextContent(e.target.value)}
+              onChange={(e) => { setTextContent(e.target.value); if (e.target.value) clearSelectedFile(); }}
               placeholder="Paste your content here... (blog post, notes, transcript, etc.)"
-              className="input-field font-mono text-sm min-h-[180px] resize-y mb-4"
+              className="input-field font-mono text-sm min-h-[140px] resize-y mb-4"
+              disabled={uploading || !!selectedFile}
             />
+
+            {/* Upload Button */}
             <button
-              onClick={handleUploadText}
-              disabled={uploading || !textContent.trim()}
+              onClick={handleUpload}
+              disabled={uploading || (!textContent.trim() && !selectedFile)}
               className="btn-primary"
             >
               {uploading ? (
-                'Uploading...'
+                <>
+                  <svg className="animate-spin w-4 h-4 mr-2" fill="none" viewBox="0 0 24 24">
+                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                  </svg>
+                  {uploadProgress || 'Processing...'}
+                </>
               ) : (
                 <>
                   <svg className="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -322,6 +441,13 @@ export default function CampaignDetailPage({ params }: { params: { id: string } 
                 </>
               )}
             </button>
+
+            {/* Transcription note */}
+            <p className="text-xs text-gray-600 mt-3">
+              {selectedFile
+                ? 'Video/audio will be transcribed and analyzed automatically.'
+                : 'If you upload a video, we\'ll auto-transcribe it for analysis.'}
+            </p>
           </div>
         ) : (
           <div className="glass-panel p-6 space-y-5">

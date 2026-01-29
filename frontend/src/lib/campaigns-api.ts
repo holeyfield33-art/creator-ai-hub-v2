@@ -104,6 +104,16 @@ export async function updateAsset(
   })
 }
 
+export interface UploadSourceResponse {
+  source: CampaignSource
+  job?: {
+    id: string
+    status: string
+    type: string
+  }
+  message?: string
+}
+
 export async function uploadCampaignSource(
   token: string,
   campaignId: string,
@@ -113,8 +123,8 @@ export async function uploadCampaignSource(
     fileName?: string
     fileSize?: number
   }
-): Promise<CampaignSource> {
-  return request<CampaignSource>(`/api/campaigns/${campaignId}/upload`, {
+): Promise<UploadSourceResponse> {
+  return request<UploadSourceResponse>(`/api/campaigns/${campaignId}/upload`, {
     method: 'POST',
     token,
     body: data,
