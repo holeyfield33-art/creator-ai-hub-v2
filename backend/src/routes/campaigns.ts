@@ -320,6 +320,77 @@ export async function generateAssetsHandler(
   }
 }
 
+// DELETE /api/campaigns/:id - Delete campaign
+export async function deleteCampaignHandler(
+  request: FastifyRequest<{ Params: { id: string } }>,
+  reply: FastifyReply
+) {
+  const userId = await getUserFromToken(request)
+  if (!userId) {
+    return reply.status(401).send({ error: 'Unauthorized' })
+  }
+
+  const { id } = request.params
+
+  try {
+    // Verify campaign belongs to user
+    const campaign = await prisma.campaign.findFirst({
+      where: { id, userId },
+    })
+
+    if (!campaign) {
+      return reply.status(404).send({ error: 'Campaign not found' })
+    }
+
+    // Delete campaign (cascade will delete related records)
+    await prisma.campaign.delete({
+      where: { id },
+    })
+
+    return reply.send({ success: true })
+  } catch (error) {
+    request.log.error(error)
+    return reply.status(500).send({ error: 'Failed to delete campaign' })
+  }
+}
+
+// GET /api/jobs/:id - Get job status
+export async function getJobStatusHandler(
+  request: FastifyRequest<{ Params: { id: string } }>,
+  reply: FastifyReply
+) {
+  const userId = await getUserFromToken(request)
+  if (!userId) {
+    return reply.status(401).send({ error: 'Unauthorized' })
+  }
+
+  const { id } = request.params
+
+  try {
+    const job = await prisma.job.findUnique({
+      where: { id },
+      select: {
+        id: true,
+        type: true,
+        status: true,
+        result: true,
+        error: true,
+        createdAt: true,
+        completedAt: true,
+      },
+    })
+
+    if (!job) {
+      return reply.status(404).send({ error: 'Job not found' })
+    }
+
+    return reply.send(job)
+  } catch (error) {
+    request.log.error(error)
+    return reply.status(500).send({ error: 'Failed to get job status' })
+  }
+}
+
 // PUT /api/assets/:id - Update asset content
 export async function updateAssetHandler(
   request: FastifyRequest<{
