@@ -5,21 +5,23 @@ import { useDropzone } from 'react-dropzone'
 import { useUploadThing } from '@/lib/uploadthing'
 
 interface VideoUploadProps {
-  onUploadComplete: (url: string, file: File) => void
+  onUploadComplete: (url: string, fileKey: string, file: File) => void
   onUploadError?: (error: Error) => void
 }
 
 export default function VideoUpload({ onUploadComplete, onUploadError }: VideoUploadProps) {
   const [uploading, setUploading] = useState(false)
   const [progress, setProgress] = useState(0)
+  const [uploadedFile, setUploadedFile] = useState<File | null>(null)
 
   const { startUpload, isUploading } = useUploadThing('videoUploader', {
     onClientUploadComplete: (files) => {
-      if (files && files.length > 0) {
+      if (files && files.length > 0 && uploadedFile) {
         const file = files[0]
         setUploading(false)
         setProgress(0)
-        onUploadComplete(file.url, file as unknown as File)
+        onUploadComplete(file.url, file.key, uploadedFile)
+        setUploadedFile(null)
       }
     },
     onUploadError: (error: Error) => {
@@ -37,10 +39,12 @@ export default function VideoUpload({ onUploadComplete, onUploadError }: VideoUp
   const onDrop = useCallback(async (acceptedFiles: File[]) => {
     if (acceptedFiles.length > 0) {
       setUploading(true)
+      setUploadedFile(acceptedFiles[0])
       try {
         await startUpload(acceptedFiles)
       } catch (error) {
         setUploading(false)
+        setUploadedFile(null)
         if (onUploadError && error instanceof Error) {
           onUploadError(error)
         }

@@ -6,7 +6,9 @@ import { useAuth } from '@/lib/auth-context'
 import {
   getCampaign,
   uploadCampaignSource,
-  registerCampaignSource,
+  uploadSourceForProcessing,
+  getCampaignStatus,
+  CampaignStatus,
   generateAssets,
   updateAsset,
   waitForJobs,
@@ -56,6 +58,10 @@ export default function CampaignDetailClient({ campaignId }: CampaignDetailClien
   const [textContent, setTextContent] = useState('')
   const [uploading, setUploading] = useState(false)
 
+  // Processing status
+  const [processingStatus, setProcessingStatus] = useState<CampaignStatus | null>(null)
+  const [polling, setPolling] = useState(false)
+
   // Generation state
   const [selectedChannels, setSelectedChannels] = useState<string[]>([])
   const [generating, setGenerating] = useState(false)
@@ -101,6 +107,9 @@ export default function CampaignDetailClient({ campaignId }: CampaignDetailClien
         editState[asset.id] = asset.content || ''
       })
       setEditingAssets(editState)
+
+      // Load processing status
+      await loadProcessingStatus()
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to load campaign')
     } finally {
@@ -108,37 +117,63 @@ export default function CampaignDetailClient({ campaignId }: CampaignDetailClien
     }
   }
 
-  async function handleUploadText() {
-    if (!session?.access_token || !textContent.trim()) return
+  async function loadProcessingStatus() {
+    if (!session?.access_token) return
     try {
-      setUploading(true)
-      await uploadCampaignSource(session.access_token, campaignId, {
-        sourceType: 'text',
-        text: textContent.trim(),
-      })
-      setTextContent('')
-      await loadCampaign()
+      const status = await getCampaignStatus(session.access_token, campaignId)
+      setProcessingStatus(status)
+
+      // Start polling if processing
+      if (status.isProcessing && !polling) {
+        setPolling(true)
+        startPolling()
+      }
     } catch (err) {
-      alert(err instanceof Error ? err.message : 'Failed to upload text')
-    } finally {
-      setUploading(false)
+      console.error('Failed to load processing status:', err)
     }
   }
 
-  async function handleVideoUploadComplete(url: string, file: File) {
+  function startPolling() {
+    const interval = setInterval(async () => {
+      if (!session?.access_token) {
+        clearInterval(interval)
+        return
+      }
+
+      try {
+        const status = await getCampaignStatus(session.access_token, campaignId)
+        setProcessingStatus(status)
+
+        // Stop polling if no longer processing
+        if (!status.isProcessing) {
+          clearInterval(interval)
+          setPolling(false)
+          // Reload campaign to get updated data
+          await loadCampaign()
+        }
+      } catch (err) {
+        console.error('Polling error:', err)
+      }
+    }, 3000) // Poll every 3 seconds
+
+    // Cleanup on unmount
+    return () => clearInterval(interval)
+  }
+
+  async function handleVideoUploadComplete(fileUrl: string, fileKey: string, file: File) {
     if (!session?.access_token) return
     try {
       setUploading(true)
-      await registerCampaignSource(session.access_token, campaignId, {
-        sourceType: 'video',
-        sourceUrl: url,
-        fileName: file.name,
+      await uploadSourceForProcessing(session.access_token, campaignId, {
+        fileUrl,
+        fileKey,
         mimeType: file.type,
-        size: file.size,
+        sizeBytes: file.size,
+        fileName: file.name,
       })
       await loadCampaign()
     } catch (err) {
-      alert(err instanceof Error ? err.message : 'Failed to register video source')
+      alert(err instanceof Error ? err.message : 'Failed to upload source')
     } finally {
       setUploading(false)
     }
@@ -325,15 +360,56 @@ export default function CampaignDetailClient({ campaignId }: CampaignDetailClien
           )}
         </div>
 
+        {/* Processing Status Banner */}
+        {processingStatus?.isProcessing && (
+          <div className="glass-panel p-5 mb-4 border-l-4 border-brand-500">
+            <div className="flex items-center gap-3">
+              <svg className="w-5 h-5 text-brand-400 animate-spin" fill="none" viewBox="0 0 24 24">
+                <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
+              </svg>
+              <div className="flex-1">
+                <p className="text-brand-400 font-semibold">Processing in progress...</p>
+                <p className="text-sm text-gray-400 mt-0.5">
+                  {processingStatus.currentStatus === 'transcribing' && 'Transcribing audio...'}
+                  {processingStatus.currentStatus === 'generating' && 'Generating content assets...'}
+                  {!processingStatus.currentStatus && 'Starting processing...'}
+                </p>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Usage Quotas */}
+        {processingStatus?.quotas && (
+          <div className="glass-panel p-4 mb-4">
+            <div className="text-xs text-gray-500 uppercase tracking-wider mb-2">Today's Usage</div>
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <div className="text-sm text-gray-400">Transcriptions</div>
+                <div className="text-lg font-semibold text-white">
+                  {processingStatus.quotas.transcriptions.used} / {processingStatus.quotas.transcriptions.limit}
+                </div>
+              </div>
+              <div>
+                <div className="text-sm text-gray-400">Generations</div>
+                <div className="text-lg font-semibold text-white">
+                  {processingStatus.quotas.generations.used} / {processingStatus.quotas.generations.limit}
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+
         {!hasSource && !latestAnalysis ? (
           <div className="glass-panel p-6">
             <p className="text-gray-400 text-sm mb-6">
-              Upload a video file or paste your raw content. AI will analyze it and extract key themes, hooks, and talking points.
+              Upload audio or video. The system will automatically transcribe and generate content assets.
             </p>
             
             {/* Video upload section */}
             <div className="mb-6">
-              <h3 className="text-sm font-semibold text-gray-300 mb-3">Upload Video File</h3>
+              <h3 className="text-sm font-semibold text-gray-300 mb-3">Upload Audio/Video File</h3>
               <VideoUpload 
                 onUploadComplete={handleVideoUploadComplete}
                 onUploadError={handleVideoUploadError}
@@ -342,28 +418,35 @@ export default function CampaignDetailClient({ campaignId }: CampaignDetailClien
 
             {/* Text fallback */}
             <div className="border-t border-white/[0.06] pt-6">
-              <h3 className="text-sm font-semibold text-gray-300 mb-3">Or Paste Text Content</h3>
+              <h3 className="text-sm font-semibold text-gray-300 mb-2">Paste transcript instead (optional)</h3>
+              <p className="text-xs text-gray-500 mb-3">If you already have a transcript, paste it here. This requires manual Generate.</p>
               <textarea
                 value={textContent}
                 onChange={(e) => setTextContent(e.target.value)}
-                placeholder="Paste your content here... (blog post, notes, transcript, etc.)"
-                className="input-field font-mono text-sm min-h-[180px] resize-y mb-4"
+                placeholder="Paste transcript text here..."
+                className="input-field font-mono text-sm min-h-[120px] resize-y mb-4"
               />
               <button
-                onClick={handleUploadText}
+                onClick={async () => {
+                  if (!session?.access_token || !textContent.trim()) return
+                  try {
+                    setUploading(true)
+                    await uploadCampaignSource(session.access_token, campaignId, {
+                      sourceType: 'text',
+                      text: textContent.trim(),
+                    })
+                    setTextContent('')
+                    await loadCampaign()
+                  } catch (err) {
+                    alert(err instanceof Error ? err.message : 'Failed to upload text')
+                  } finally {
+                    setUploading(false)
+                  }
+                }}
                 disabled={uploading || !textContent.trim()}
-                className="btn-primary"
+                className="btn-secondary text-sm"
               >
-                {uploading ? (
-                  'Uploading...'
-                ) : (
-                  <>
-                    <svg className="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5m-13.5-9L12 3m0 0l4.5 4.5M12 3v13.5" />
-                    </svg>
-                    Upload &amp; Analyze
-                  </>
-                )}
+                {uploading ? 'Uploading...' : 'Upload Text (Manual Generate)'}
               </button>
             </div>
           </div>
@@ -374,17 +457,40 @@ export default function CampaignDetailClient({ campaignId }: CampaignDetailClien
                 <h3 className="text-sm font-semibold text-gray-300 uppercase tracking-wider mb-2">Uploaded Sources</h3>
                 <ul className="space-y-2">
                   {campaign.sources.map((source) => (
-                    <li key={source.id} className="flex items-center gap-2 text-sm text-gray-400">
-                      <span className="text-brand-400">✓</span>
-                      <span className="capitalize">{source.sourceType}</span>
-                      {source.sourceUrl && (
-                        <a href={source.sourceUrl} target="_blank" rel="noopener noreferrer" className="text-brand-400 hover:underline">
-                          (view)
-                        </a>
-                      )}
+                    <li key={source.id} className="flex items-center justify-between text-sm">
+                      <div className="flex items-center gap-2 text-gray-400">
+                        <span className={source.status === 'ready' ? 'text-green-400' : 'text-brand-400'}>
+                          {source.status === 'ready' ? '✓' : '○'}
+                        </span>
+                        <span className="capitalize">{source.sourceType}</span>
+                        {source.sourceUrl && (
+                          <a href={source.sourceUrl} target="_blank" rel="noopener noreferrer" className="text-brand-400 hover:underline text-xs">
+                            (view)
+                          </a>
+                        )}
+                      </div>
+                      <span className={`text-xs px-2 py-0.5 rounded ${
+                        source.status === 'ready' ? 'bg-green-500/20 text-green-400' :
+                        source.status === 'error' ? 'bg-red-500/20 text-red-400' :
+                        'bg-brand-500/20 text-brand-400'
+                      }`}>
+                        {source.status || 'uploaded'}
+                      </span>
                     </li>
                   ))}
                 </ul>
+              </div>
+            )}
+
+            {/* Show transcript if available */}
+            {campaign.sources?.some(s => s.transcriptText) && (
+              <div>
+                <h3 className="text-sm font-semibold text-gray-300 uppercase tracking-wider mb-2">Transcript</h3>
+                <div className="bg-black/20 rounded-lg p-4 max-h-60 overflow-y-auto">
+                  <p className="text-gray-300 text-sm leading-relaxed whitespace-pre-wrap">
+                    {campaign.sources.find(s => s.transcriptText)?.transcriptText}
+                  </p>
+                </div>
               </div>
             )}
             

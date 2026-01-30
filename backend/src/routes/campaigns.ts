@@ -2,6 +2,14 @@ import { FastifyRequest, FastifyReply } from 'fastify'
 import { createClient } from '@supabase/supabase-js'
 import { PrismaClient } from '@prisma/client'
 import { SUPPORTED_CHANNELS } from '../prompts/generate-assets'
+import {
+  SAFETY_CONFIG,
+  checkActiveJob,
+  validateFile,
+  checkTranscriptionQuota,
+  getUserQuotaStatus,
+} from '../lib/safety-guards'
+import { processSource, getCampaignStatus } from '../lib/processing-pipeline'
 
 const prisma = new PrismaClient()
 
@@ -235,7 +243,131 @@ export async function uploadCampaignSourceHandler(
   }
 }
 
-// POST /api/campaigns/:id/sources - Register uploaded video source
+// POST /api/campaigns/:id/sources - Upload and auto-process source
+export async function uploadSourceHandler(
+  request: FastifyRequest<{
+    Params: { id: string }
+    Body: {
+      fileUrl: string
+      fileKey: string
+      mimeType: string
+      sizeBytes: number
+      duration?: number
+      fileName?: string
+    }
+  }>,
+  reply: FastifyReply
+) {
+  const userId = await getUserFromToken(request)
+  if (!userId) {
+    return reply.status(401).send({ error: 'Unauthorized' })
+  }
+
+  const { id } = request.params
+  const { fileUrl, fileKey, mimeType, sizeBytes, duration, fileName } = request.body
+
+  if (!fileUrl || !mimeType) {
+    return reply.status(400).send({ error: 'fileUrl and mimeType are required' })
+  }
+
+  try {
+    // Verify campaign belongs to user
+    const campaign = await prisma.campaign.findFirst({
+      where: { id, userId },
+    })
+
+    if (!campaign) {
+      return reply.status(404).send({ error: 'Campaign not found' })
+    }
+
+    // Safety check: active job
+    const activeCheck = await checkActiveJob(userId)
+    if (!activeCheck.allowed) {
+      return reply.status(429).send({ error: activeCheck.reason })
+    }
+
+    // Safety check: file constraints
+    const fileCheck = validateFile(mimeType, sizeBytes, duration)
+    if (!fileCheck.allowed) {
+      return reply.status(400).send({ error: fileCheck.reason })
+    }
+
+    // Safety check: transcription quota
+    const quotaCheck = await checkTranscriptionQuota(userId)
+    if (!quotaCheck.allowed) {
+      return reply.status(429).send({ error: quotaCheck.reason })
+    }
+
+    // Create source record
+    const source = await prisma.campaignSource.create({
+      data: {
+        campaignId: id,
+        sourceType: mimeType.startsWith('video/') ? 'video' : 'audio',
+        sourceUrl: fileUrl,
+        status: 'uploaded',
+        metadata: {
+          fileName,
+          mimeType,
+          sizeBytes,
+          duration,
+          fileKey,
+          uploadedAt: new Date().toISOString(),
+        },
+      },
+    })
+
+    request.log.info(`[Upload] Created source ${source.id} for campaign ${id}`)
+
+    // Start auto processing (async, don't await)
+    if (SAFETY_CONFIG.AUTO_PROCESSING) {
+      processSource(source.id, id, userId).catch(error => {
+        request.log.error('[Upload] Auto-processing failed:', error)
+      })
+    }
+
+    return reply.status(201).send({ source })
+  } catch (error) {
+    request.log.error(error)
+    return reply.status(500).send({ error: 'Failed to upload source' })
+  }
+}
+
+// GET /api/campaigns/:id/status - Get campaign processing status
+export async function getCampaignStatusHandler(
+  request: FastifyRequest<{ Params: { id: string } }>,
+  reply: FastifyReply
+) {
+  const userId = await getUserFromToken(request)
+  if (!userId) {
+    return reply.status(401).send({ error: 'Unauthorized' })
+  }
+
+  const { id } = request.params
+
+  try {
+    // Verify campaign belongs to user
+    const campaign = await prisma.campaign.findFirst({
+      where: { id, userId },
+    })
+
+    if (!campaign) {
+      return reply.status(404).send({ error: 'Campaign not found' })
+    }
+
+    const status = await getCampaignStatus(id)
+    const quotaStatus = await getUserQuotaStatus(userId)
+
+    return reply.send({
+      ...status,
+      quotas: quotaStatus,
+    })
+  } catch (error) {
+    request.log.error(error)
+    return reply.status(500).send({ error: 'Failed to get status' })
+  }
+}
+
+// POST /api/campaigns/:id/sources - Register uploaded video source (DEPRECATED - use uploadSourceHandler)
 export async function registerCampaignSourceHandler(
   request: FastifyRequest<{
     Params: { id: string }

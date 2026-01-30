@@ -1,5 +1,6 @@
 import Fastify from 'fastify'
 import cors from '@fastify/cors'
+import rateLimit from '@fastify/rate-limit'
 import { getMeHandler } from './routes/me'
 import {
   createCampaignHandler,
@@ -7,6 +8,8 @@ import {
   getCampaignHandler,
   uploadCampaignSourceHandler,
   registerCampaignSourceHandler,
+  uploadSourceHandler,
+  getCampaignStatusHandler,
   generateAssetsHandler,
   updateAssetHandler,
   deleteCampaignHandler,
@@ -22,10 +25,23 @@ import {
   cancelScheduledPostHandler,
 } from './routes/social'
 import { analyticsRoutes } from './routes/analytics'
+import { errorHandler } from './lib/error-handler'
 
 const fastify = Fastify({
   logger: true,
 })
+
+// Register rate limiting
+fastify.register(rateLimit, {
+  max: parseInt(process.env.RATE_LIMIT_MAX || '100'),
+  timeWindow: '15 minutes',
+  errorResponseBuilder: () => ({
+    error: 'Too many requests. Please try again later.',
+  }),
+})
+
+// Register error handler
+fastify.setErrorHandler(errorHandler)
 
 // Register CORS with Authorization header support
 // Allow frontend origin from env or default to localhost
@@ -61,7 +77,8 @@ fastify.get('/api/campaigns', listCampaignsHandler)
 fastify.get('/api/campaigns/:id', getCampaignHandler)
 fastify.delete('/api/campaigns/:id', deleteCampaignHandler)
 fastify.post('/api/campaigns/:id/upload', uploadCampaignSourceHandler)
-fastify.post('/api/campaigns/:id/sources', registerCampaignSourceHandler)
+fastify.post('/api/campaigns/:id/sources', uploadSourceHandler) // New auto-process endpoint
+fastify.get('/api/campaigns/:id/status', getCampaignStatusHandler) // New status endpoint
 fastify.post('/api/campaigns/:id/generate-assets', generateAssetsHandler)
 
 // Asset endpoints

@@ -24,6 +24,11 @@ export interface CampaignSource {
   sourceUrl: string | null
   sourceText: string | null
   metadata: Record<string, unknown> | null
+  status?: string // uploaded, transcribing, generating, ready, error
+  transcriptText?: string | null
+  language?: string | null
+  duration?: number | null
+  processingError?: string | null
   createdAt: string
   updatedAt: string
 }
@@ -137,6 +142,49 @@ export async function registerCampaignSource(
     token,
     body: data,
   })
+}
+
+/**
+ * Upload source for auto-processing (transcription + asset generation)
+ */
+export async function uploadSourceForProcessing(
+  token: string,
+  campaignId: string,
+  data: {
+    fileUrl: string
+    fileKey: string
+    mimeType: string
+    sizeBytes: number
+    duration?: number
+    fileName?: string
+  }
+): Promise<{ source: CampaignSource }> {
+  return request(`/api/campaigns/${campaignId}/sources`, {
+    method: 'POST',
+    token,
+    body: data,
+  })
+}
+
+/**
+ * Get campaign processing status
+ */
+export interface CampaignStatus {
+  isProcessing: boolean
+  currentStatus?: string
+  sources: CampaignSource[]
+  assets: GeneratedAsset[]
+  quotas: {
+    transcriptions: { used: number; limit: number }
+    generations: { used: number; limit: number }
+  }
+}
+
+export async function getCampaignStatus(
+  token: string,
+  campaignId: string
+): Promise<CampaignStatus> {
+  return request(`/api/campaigns/${campaignId}/status`, { token })
 }
 
 export async function deleteCampaign(
