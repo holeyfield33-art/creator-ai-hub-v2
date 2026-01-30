@@ -4,7 +4,7 @@ const prisma = new PrismaClient()
 
 async function createTestJob() {
   try {
-    const job = await prisma.job.create({
+    const job = await prisma.jobs.create({
       data: {
         type: 'analysis',
         status: 'pending',

@@ -23,7 +23,7 @@ export async function processSource(sourceId: string, campaignId: string, userId
     // Check kill switches
     if (SAFETY_CONFIG.AI_DISABLED) {
       console.log('[Pipeline] AI is disabled via env')
-      await prisma.campaignSource.update({
+      await prisma.campaign_sources.update({
         where: { id: sourceId },
         data: {
           status: 'error',
@@ -45,7 +45,7 @@ export async function processSource(sourceId: string, campaignId: string, userId
     await generateAssetsForCampaign(campaignId, userId)
 
     // Mark as ready
-    await prisma.campaignSource.update({
+    await prisma.campaign_sources.update({
       where: { id: sourceId },
       data: { status: 'ready' },
     })
@@ -54,7 +54,7 @@ export async function processSource(sourceId: string, campaignId: string, userId
   } catch (error) {
     console.error('[Pipeline] Processing error:', error)
     
-    await prisma.campaignSource.update({
+    await prisma.campaign_sources.update({
       where: { id: sourceId },
       data: {
         status: 'error',
@@ -68,7 +68,7 @@ export async function processSource(sourceId: string, campaignId: string, userId
  * Transcribe audio/video source
  */
 async function transcribeSource(sourceId: string, userId: string) {
-  const source = await prisma.campaignSource.findUnique({
+  const source = await prisma.campaign_sources.findUnique({
     where: { id: sourceId },
   })
 
@@ -83,7 +83,7 @@ async function transcribeSource(sourceId: string, userId: string) {
   }
 
   // Update status
-  await prisma.campaignSource.update({
+  await prisma.campaign_sources.update({
     where: { id: sourceId },
     data: { status: 'transcribing' },
   })
@@ -100,7 +100,7 @@ async function transcribeSource(sourceId: string, userId: string) {
     const result = await aiProvider.transcribe(source.sourceUrl)
 
     // Save transcript
-    await prisma.campaignSource.update({
+    await prisma.campaign_sources.update({
       where: { id: sourceId },
       data: {
         transcriptText: result.text,
@@ -124,7 +124,7 @@ async function transcribeSource(sourceId: string, userId: string) {
  */
 async function generateAssetsForCampaign(campaignId: string, userId: string) {
   // Get source with transcript
-  const source = await prisma.campaignSource.findFirst({
+  const source = await prisma.campaign_sources.findFirst({
     where: {
       campaignId,
       transcriptText: { not: null },
@@ -158,7 +158,7 @@ Return as JSON array: ["caption1", "caption2", ...]`
 
   // Save captions
   for (let i = 0; i < captions.length; i++) {
-    await prisma.generatedAsset.create({
+    await prisma.generated_assets.create({
       data: {
         campaignId,
         assetType: 'caption',
@@ -180,7 +180,7 @@ Return as JSON array: ["tweet1", "tweet2", ...]`
   const threadResponse = await aiProvider.complete(threadPrompt, { maxTokens: 500 })
   const thread = parseCaptionsResponse(threadResponse.content)
 
-  await prisma.generatedAsset.create({
+  await prisma.generated_assets.create({
     data: {
       campaignId,
       assetType: 'thread',
@@ -201,7 +201,7 @@ Return as JSON array: ["hook1", "hook2", "hook3"]`
   const hooks = parseCaptionsResponse(hooksResponse.content)
 
   for (let i = 0; i < hooks.length; i++) {
-    await prisma.generatedAsset.create({
+    await prisma.generated_assets.create({
       data: {
         campaignId,
         assetType: 'hook',
@@ -220,7 +220,7 @@ ${source.transcriptText.substring(0, 4000)}`
 
   const summaryResponse = await aiProvider.complete(summaryPrompt, { maxTokens: 500 })
 
-  await prisma.generatedAsset.create({
+  await prisma.generated_assets.create({
     data: {
       campaignId,
       assetType: 'summary',
@@ -262,12 +262,12 @@ function parseCaptionsResponse(content: string): string[] {
  * Get campaign processing status
  */
 export async function getCampaignStatus(campaignId: string) {
-  const sources = await prisma.campaignSource.findMany({
+  const sources = await prisma.campaign_sources.findMany({
     where: { campaignId },
     orderBy: { createdAt: 'desc' },
   })
 
-  const assets = await prisma.generatedAsset.findMany({
+  const assets = await prisma.generated_assets.findMany({
     where: { campaignId },
   })
 

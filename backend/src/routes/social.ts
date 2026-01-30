@@ -213,7 +213,7 @@ export async function xCallbackHandler(
       : null
 
     // Store or update connection
-    const connection = await prisma.socialConnection.upsert({
+    const connection = await prisma.social_connections.upsert({
       where: {
         userId_platform: {
           userId,
@@ -256,7 +256,7 @@ export async function listConnectionsHandler(
   try {
     const user = await getUserFromAuth(request.headers.authorization)
 
-    const connections = await prisma.socialConnection.findMany({
+    const connections = await prisma.social_connections.findMany({
       where: { userId: user.id },
       select: {
         id: true,
@@ -285,7 +285,7 @@ export async function disconnectHandler(
     const { connectionId } = request.params
 
     // Verify connection belongs to user
-    const connection = await prisma.socialConnection.findFirst({
+    const connection = await prisma.social_connections.findFirst({
       where: {
         id: connectionId,
         userId: user.id,
@@ -297,7 +297,7 @@ export async function disconnectHandler(
     }
 
     // Delete connection
-    await prisma.socialConnection.delete({
+    await prisma.social_connections.delete({
       where: { id: connectionId },
     })
 
@@ -325,7 +325,7 @@ export async function schedulePostHandler(
     const { assetId, connectionId, scheduledFor, content, mediaUrls = [] } = request.body
 
     // Verify asset exists and belongs to user
-    const asset = await prisma.generatedAsset.findFirst({
+    const asset = await prisma.generated_assets.findFirst({
       where: {
         id: assetId,
         campaign: {
@@ -339,7 +339,7 @@ export async function schedulePostHandler(
     }
 
     // Verify connection belongs to user
-    const connection = await prisma.socialConnection.findFirst({
+    const connection = await prisma.social_connections.findFirst({
       where: {
         id: connectionId,
         userId: user.id,
@@ -351,7 +351,7 @@ export async function schedulePostHandler(
     }
 
     // Create scheduled post
-    const scheduledPost = await prisma.scheduledPost.create({
+    const scheduledPost = await prisma.scheduled_posts.create({
       data: {
         userId: user.id,
         assetId,
@@ -379,7 +379,7 @@ export async function listScheduledPostsHandler(
   try {
     const user = await getUserFromAuth(request.headers.authorization)
 
-    const posts = await prisma.scheduledPost.findMany({
+    const posts = await prisma.scheduled_posts.findMany({
       where: { userId: user.id },
       include: {
         asset: {
@@ -417,7 +417,7 @@ export async function cancelScheduledPostHandler(
     const { postId } = request.params
 
     // Verify post belongs to user
-    const post = await prisma.scheduledPost.findFirst({
+    const post = await prisma.scheduled_posts.findFirst({
       where: {
         id: postId,
         userId: user.id,
@@ -430,7 +430,7 @@ export async function cancelScheduledPostHandler(
     }
 
     // Update status to cancelled
-    await prisma.scheduledPost.update({
+    await prisma.scheduled_posts.update({
       where: { id: postId },
       data: { status: 'cancelled' },
     })

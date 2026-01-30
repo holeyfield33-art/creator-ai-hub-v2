@@ -44,7 +44,7 @@ export interface ValidationResult {
  * Check if user has an active processing job
  */
 export async function checkActiveJob(userId: string): Promise<ValidationResult> {
-  const activeSources = await prisma.campaignSource.findMany({
+  const activeSources = await prisma.campaign_sources.findMany({
     where: {
       campaign: { userId },
       status: { in: ['transcribing', 'generating'] },
@@ -108,7 +108,7 @@ export async function checkTranscriptionQuota(userId: string): Promise<Validatio
   const today = new Date()
   today.setHours(0, 0, 0, 0)
 
-  const quota = await prisma.usageQuota.upsert({
+  const quota = await prisma.usage_quotas.upsert({
     where: {
       userId_quotaDate: {
         userId,
@@ -143,7 +143,7 @@ export async function checkGenerationQuota(userId: string): Promise<ValidationRe
   const today = new Date()
   today.setHours(0, 0, 0, 0)
 
-  const quota = await prisma.usageQuota.upsert({
+  const quota = await prisma.usage_quotas.upsert({
     where: {
       userId_quotaDate: {
         userId,
@@ -178,7 +178,7 @@ export async function incrementTranscriptionUsage(userId: string): Promise<void>
   const today = new Date()
   today.setHours(0, 0, 0, 0)
 
-  await prisma.usageQuota.upsert({
+  await prisma.usage_quotas.upsert({
     where: {
       userId_quotaDate: { userId, quotaDate: today },
     },
@@ -203,7 +203,7 @@ export async function incrementGenerationUsage(userId: string): Promise<void> {
   const today = new Date()
   today.setHours(0, 0, 0, 0)
 
-  await prisma.usageQuota.upsert({
+  await prisma.usage_quotas.upsert({
     where: {
       userId_quotaDate: { userId, quotaDate: today },
     },
@@ -225,7 +225,7 @@ export async function incrementGenerationUsage(userId: string): Promise<void> {
  * Check if source already has transcript (idempotency)
  */
 export async function shouldTranscribe(sourceId: string): Promise<boolean> {
-  const source = await prisma.campaignSource.findUnique({
+  const source = await prisma.campaign_sources.findUnique({
     where: { id: sourceId },
     select: { transcriptText: true },
   })
@@ -237,7 +237,7 @@ export async function shouldTranscribe(sourceId: string): Promise<boolean> {
  * Check if assets already exist for source (idempotency)
  */
 export async function shouldGenerateAssets(campaignId: string): Promise<boolean> {
-  const existingAssets = await prisma.generatedAsset.findFirst({
+  const existingAssets = await prisma.generated_assets.findFirst({
     where: {
       campaignId,
       status: 'completed',
@@ -254,7 +254,7 @@ export async function getUserQuotaStatus(userId: string) {
   const today = new Date()
   today.setHours(0, 0, 0, 0)
 
-  const quota = await prisma.usageQuota.findUnique({
+  const quota = await prisma.usage_quotas.findUnique({
     where: {
       userId_quotaDate: { userId, quotaDate: today },
     },

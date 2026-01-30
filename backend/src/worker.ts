@@ -56,7 +56,7 @@ const jobProcessors: JobProcessor = {
     }
     
     // Store analysis in campaign_analysis table
-    const campaignAnalysis = await prisma.campaignAnalysis.create({
+    const campaignAnalysis = await prisma.campaign_analysis.create({
       data: {
         campaignId,
         analysisType: 'content_summary',
@@ -74,7 +74,7 @@ const jobProcessors: JobProcessor = {
     })
     
     // Update campaign status to 'ready'
-    await prisma.campaign.update({
+    await prisma.campaigns.update({
       where: { id: campaignId },
       data: { status: 'ready' },
     })
@@ -115,7 +115,7 @@ const jobProcessors: JobProcessor = {
     const content = response.content.trim()
     
     // Create generated asset in database
-    const asset = await prisma.generatedAsset.create({
+    const asset = await prisma.generated_assets.create({
       data: {
         campaignId,
         assetType: channel,
@@ -150,9 +150,9 @@ const jobProcessors: JobProcessor = {
     }
     
     // Get the scheduled post with social connection
-    const post = await prisma.scheduledPost.findUnique({
+    const post = await prisma.scheduled_posts.findUnique({
       where: { id: scheduledPostId },
-      include: { socialConnection: true },
+      include: { social_connections: true },
     })
     
     if (!post) {
@@ -171,20 +171,20 @@ const jobProcessors: JobProcessor = {
     const metricsData = await fetchMetricsFromPlatform(
       post.platform,
       post.platformPostId,
-      post.socialConnection.accessToken
+      post.social_connections.accessToken
     )
     
     // Calculate engagement rate
     const engagementRate = calculateEngagementRate(metricsData)
     
     // Create or update post metric
-    const existingMetric = await prisma.postMetric.findFirst({
+    const existingMetric = await prisma.post_metrics.findFirst({
       where: { scheduledPostId },
       orderBy: { fetchedAt: 'desc' },
     })
     
     // Always create a new metric entry (for historical tracking)
-    const metric = await prisma.postMetric.create({
+    const metric = await prisma.post_metrics.create({
       data: {
         scheduledPostId,
         platform: post.platform,
@@ -238,7 +238,7 @@ const jobProcessors: JobProcessor = {
 async function claimJob() {
   try {
     // Find a pending job that hasn't exceeded max attempts
-    const job = await prisma.job.findFirst({
+    const job = await prisma.jobs.findFirst({
       where: {
         status: 'pending',
         attempts: {
@@ -256,7 +256,7 @@ async function claimJob() {
 
     // Atomically claim the job by updating to running
     // This prevents double-processing even with multiple workers
-    const updatedJob = await prisma.job.updateMany({
+    const updatedJob = await prisma.jobs.updateMany({
       where: {
         id: job.id,
         status: 'pending', // Only update if still pending
@@ -277,7 +277,7 @@ async function claimJob() {
     }
 
     // Fetch the updated job
-    return await prisma.job.findUnique({
+    return await prisma.jobs.findUnique({
       where: { id: job.id },
     })
   } catch (error) {
@@ -300,7 +300,7 @@ async function processJob(job: any) {
     const result = await processor(job.payload)
 
     // Mark as completed
-    await prisma.job.update({
+    await prisma.jobs.update({
       where: { id: job.id },
       data: {
         status: 'completed',
@@ -317,7 +317,7 @@ async function processJob(job: any) {
     // Check if we should retry or mark as failed
     const shouldFail = job.attempts >= job.maxAttempts
 
-    await prisma.job.update({
+    await prisma.jobs.update({
       where: { id: job.id },
       data: {
         status: shouldFail ? 'failed' : 'pending',
@@ -353,7 +353,7 @@ async function pollJobs() {
 async function processScheduledPosts() {
   try {
     // Find all pending posts that are due
-    const duePosts = await prisma.scheduledPost.findMany({
+    const duePosts = await prisma.scheduled_posts.findMany({
       where: {
         status: 'pending',
         scheduledFor: {
@@ -375,20 +375,20 @@ async function processScheduledPosts() {
     for (const post of duePosts) {
       try {
         // Mark as processing
-        await prisma.scheduledPost.update({
+        await prisma.scheduled_posts.update({
           where: { id: post.id },
           data: { status: 'posting' },
         })
 
         // Post to platform
         if (post.platform === 'x') {
-          await postToX(post, post.socialConnection)
+          await postToX(post, post.social_connections)
         } else {
           throw new Error(`Unsupported platform: ${post.platform}`)
         }
 
         // Mark as posted
-        await prisma.scheduledPost.update({
+        await prisma.scheduled_posts.update({
           where: { id: post.id },
           data: {
             status: 'posted',
@@ -401,7 +401,7 @@ async function processScheduledPosts() {
         console.error(`Failed to post ${post.id}:`, error.message)
         
         // Mark as failed
-        await prisma.scheduledPost.update({
+        await prisma.scheduled_posts.update({
           where: { id: post.id },
           data: {
             status: 'failed',
@@ -461,7 +461,7 @@ async function refreshXToken(connection: any): Promise<string> {
     : null
 
   // Update connection with new tokens
-  await prisma.socialConnection.update({
+  await prisma.social_connections.update({
     where: { id: connection.id },
     data: {
       accessToken: access_token,
@@ -504,7 +504,7 @@ async function postToX(post: any, connection: any) {
   const result = await response.json() as any
 
   // Update post with platform post ID
-  await prisma.scheduledPost.update({
+  await prisma.scheduled_posts.update({
     where: { id: post.id },
     data: {
       platformPostId: result.data.id,

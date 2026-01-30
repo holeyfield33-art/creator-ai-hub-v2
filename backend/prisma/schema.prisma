@@ -16,7 +16,7 @@ model campaign_analysis {
   summary      String?
   score        Float?
   createdAt    DateTime  @default(now())
-  updatedAt    DateTime
+  updatedAt       DateTime          @updatedAt
   campaigns    campaigns @relation(fields: [campaignId], references: [id], onDelete: Cascade)
 
   @@index([analysisType])
@@ -33,7 +33,7 @@ model campaign_metrics {
   periodStart       DateTime
   periodEnd         DateTime
   createdAt         DateTime  @default(now())
-  updatedAt         DateTime
+  updatedAt       DateTime          @updatedAt
   campaigns         campaigns @relation(fields: [campaignId], references: [id], onDelete: Cascade)
 
   @@index([campaignId])
@@ -48,7 +48,7 @@ model campaign_sources {
   sourceText      String?
   metadata        Json?
   createdAt       DateTime  @default(now())
-  updatedAt       DateTime
+  updatedAt       DateTime          @updatedAt
   duration        Float?
   language        String?
   processingError String?
@@ -68,7 +68,7 @@ model campaigns {
   budget            Float?
   userId            String
   createdAt         DateTime            @default(now())
-  updatedAt         DateTime
+  updatedAt       DateTime          @updatedAt
   campaign_analysis campaign_analysis[]
   campaign_metrics  campaign_metrics[]
   campaign_sources  campaign_sources[]
@@ -88,7 +88,7 @@ model generated_assets {
   metadata        Json?
   status          String            @default("pending")
   createdAt       DateTime          @default(now())
-  updatedAt       DateTime
+  updatedAt       DateTime          @updatedAt
   campaigns       campaigns         @relation(fields: [campaignId], references: [id], onDelete: Cascade)
   scheduled_posts scheduled_posts[]
 
@@ -107,7 +107,7 @@ model jobs {
   attempts    Int       @default(0)
   maxAttempts Int       @default(3)
   createdAt   DateTime  @default(now())
-  updatedAt   DateTime
+  updatedAt       DateTime          @updatedAt
   startedAt   DateTime?
   completedAt DateTime?
 
@@ -130,7 +130,7 @@ model post_metrics {
   platform        String
   externalId      String?
   createdAt       DateTime        @default(now())
-  updatedAt       DateTime
+  updatedAt       DateTime          @updatedAt
   scheduled_posts scheduled_posts @relation(fields: [scheduledPostId], references: [id], onDelete: Cascade)
 
   @@index([fetchedAt])
@@ -153,7 +153,7 @@ model scheduled_posts {
   error              String?
   metadata           Json?
   createdAt          DateTime           @default(now())
-  updatedAt          DateTime
+  updatedAt       DateTime          @updatedAt
   post_metrics       post_metrics[]
   generated_assets   generated_assets   @relation(fields: [assetId], references: [id], onDelete: Cascade)
   social_connections social_connections @relation(fields: [socialConnectionId], references: [id], onDelete: Cascade)
@@ -177,7 +177,7 @@ model social_connections {
   tokenExpiry     DateTime?
   metadata        Json?
   createdAt       DateTime          @default(now())
-  updatedAt       DateTime
+  updatedAt       DateTime          @updatedAt
   scheduled_posts scheduled_posts[]
   users           users             @relation(fields: [userId], references: [id], onDelete: Cascade)
 
@@ -195,7 +195,7 @@ model usage_quotas {
   transcriptionsLimit Int      @default(10)
   generationsLimit    Int      @default(20)
   createdAt           DateTime @default(now())
-  updatedAt           DateTime
+  updatedAt       DateTime          @updatedAt
 
   @@unique([userId, quotaDate])
   @@index([quotaDate])
@@ -209,7 +209,7 @@ model users {
   password           String
   role               String               @default("user")
   createdAt          DateTime             @default(now())
-  updatedAt          DateTime
+  updatedAt       DateTime          @updatedAt
   campaigns          campaigns[]
   scheduled_posts    scheduled_posts[]
   social_connections social_connections[]

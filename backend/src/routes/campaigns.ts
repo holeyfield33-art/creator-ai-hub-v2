@@ -56,7 +56,7 @@ export async function createCampaignHandler(
   }
 
   try {
-    const campaign = await prisma.campaign.create({
+    const campaign = await prisma.campaigns.create({
       data: {
         name: name.trim(),
         description: description?.trim(),
@@ -84,7 +84,7 @@ export async function listCampaignsHandler(
   }
 
   try {
-    const campaigns = await prisma.campaign.findMany({
+    const campaigns = await prisma.campaigns.findMany({
       where: { userId },
       orderBy: { createdAt: 'desc' },
       include: {
@@ -119,7 +119,7 @@ export async function getCampaignHandler(
   const { id } = request.params
 
   try {
-    const campaign = await prisma.campaign.findFirst({
+    const campaign = await prisma.campaigns.findFirst({
       where: { id, userId },
       include: {
         sources: {
@@ -168,7 +168,7 @@ export async function uploadCampaignSourceHandler(
 
   // Verify campaign belongs to user
   try {
-    const campaign = await prisma.campaign.findFirst({
+    const campaign = await prisma.campaigns.findFirst({
       where: { id, userId },
     })
 
@@ -182,7 +182,7 @@ export async function uploadCampaignSourceHandler(
         return reply.status(400).send({ error: 'Text content is required' })
       }
 
-      const source = await prisma.campaignSource.create({
+      const source = await prisma.campaign_sources.create({
         data: {
           campaignId: id,
           sourceType: 'text',
@@ -191,7 +191,7 @@ export async function uploadCampaignSourceHandler(
       })
 
       // Create a summarize job for this text
-      const job = await prisma.job.create({
+      const job = await prisma.jobs.create({
         data: {
           type: 'summarize',
           status: 'pending',
@@ -219,7 +219,7 @@ export async function uploadCampaignSourceHandler(
       }
 
       // For now, store file metadata with placeholder URL
-      const source = await prisma.campaignSource.create({
+      const source = await prisma.campaign_sources.create({
         data: {
           campaignId: id,
           sourceType: 'file',
@@ -272,7 +272,7 @@ export async function uploadSourceHandler(
 
   try {
     // Verify campaign belongs to user
-    const campaign = await prisma.campaign.findFirst({
+    const campaign = await prisma.campaigns.findFirst({
       where: { id, userId },
     })
 
@@ -299,7 +299,7 @@ export async function uploadSourceHandler(
     }
 
     // Create source record
-    const source = await prisma.campaignSource.create({
+    const source = await prisma.campaign_sources.create({
       data: {
         campaignId: id,
         sourceType: mimeType.startsWith('video/') ? 'video' : 'audio',
@@ -346,7 +346,7 @@ export async function getCampaignStatusHandler(
 
   try {
     // Verify campaign belongs to user
-    const campaign = await prisma.campaign.findFirst({
+    const campaign = await prisma.campaigns.findFirst({
       where: { id, userId },
     })
 
@@ -395,7 +395,7 @@ export async function registerCampaignSourceHandler(
 
   try {
     // Verify campaign belongs to user
-    const campaign = await prisma.campaign.findFirst({
+    const campaign = await prisma.campaigns.findFirst({
       where: { id, userId },
     })
 
@@ -404,7 +404,7 @@ export async function registerCampaignSourceHandler(
     }
 
     // Create source record
-    const source = await prisma.campaignSource.create({
+    const source = await prisma.campaign_sources.create({
       data: {
         campaignId: id,
         sourceType: sourceType || 'video',
@@ -420,7 +420,7 @@ export async function registerCampaignSourceHandler(
 
     // Create stub analysis to unlock Generate Assets
     // This will be replaced with real AI analysis later
-    const analysis = await prisma.campaignAnalysis.create({
+    const analysis = await prisma.campaign_analysis.create({
       data: {
         campaignId: id,
         analysisType: 'content_summary',
@@ -444,7 +444,7 @@ export async function registerCampaignSourceHandler(
     request.log.info(`Created source ${source.id} and stub analysis ${analysis.id} for campaign ${id}`)
 
     // Update campaign status to ready
-    await prisma.campaign.update({
+    await prisma.campaigns.update({
       where: { id },
       data: { status: 'ready' },
     })
@@ -492,7 +492,7 @@ export async function generateAssetsHandler(
 
   try {
     // Verify campaign belongs to user and has analysis
-    const campaign = await prisma.campaign.findFirst({
+    const campaign = await prisma.campaigns.findFirst({
       where: { id, userId },
       include: {
         analyses: {
@@ -507,16 +507,16 @@ export async function generateAssetsHandler(
       return reply.status(404).send({ error: 'Campaign not found' })
     }
 
-    if (!campaign.analyses || campaign.analyses.length === 0) {
+    if (!campaign.campaign_analysis || campaign.campaign_analysis.length === 0) {
       return reply.status(400).send({ error: 'Campaign must be analyzed first (upload text)' })
     }
 
-    const analysis = campaign.analyses[0]
+    const analysis = campaign.campaign_analysis[0]
 
     // Create a generation job for each channel
     const jobs = await Promise.all(
       channels.map((channel) =>
-        prisma.job.create({
+        prisma.jobs.create({
           data: {
             type: 'generate_asset',
             status: 'pending',
@@ -537,7 +537,7 @@ export async function generateAssetsHandler(
 
     return reply.status(201).send({
       message: `Created ${jobs.length} asset generation job(s)`,
-      jobs: jobs.map((j) => ({ id: j.id, type: j.type, status: j.status })),
+      jobs: jobs.map((j: any) => ({ id: j.id, type: j.type, status: j.status })),
     })
   } catch (error) {
     request.log.error(error)
@@ -559,7 +559,7 @@ export async function deleteCampaignHandler(
 
   try {
     // Verify campaign belongs to user
-    const campaign = await prisma.campaign.findFirst({
+    const campaign = await prisma.campaigns.findFirst({
       where: { id, userId },
     })
 
@@ -568,7 +568,7 @@ export async function deleteCampaignHandler(
     }
 
     // Delete campaign (cascade will delete related records)
-    await prisma.campaign.delete({
+    await prisma.campaigns.delete({
       where: { id },
     })
 
@@ -592,7 +592,7 @@ export async function getJobStatusHandler(
   const { id } = request.params
 
   try {
-    const job = await prisma.job.findUnique({
+    const job = await prisma.jobs.findUnique({
       where: { id },
       select: {
         id: true,
@@ -638,7 +638,7 @@ export async function updateAssetHandler(
 
   try {
     // Verify asset belongs to user's campaign
-    const asset = await prisma.generatedAsset.findFirst({
+    const asset = await prisma.generated_assets.findFirst({
       where: { id },
       include: {
         campaign: {
@@ -652,7 +652,7 @@ export async function updateAssetHandler(
     }
 
     // Update asset content
-    const updatedAsset = await prisma.generatedAsset.update({
+    const updatedAsset = await prisma.generated_assets.update({
       where: { id },
       data: {
         content: content.trim(),

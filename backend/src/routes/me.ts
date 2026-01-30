@@ -26,16 +26,18 @@ export async function getMeHandler(request: FastifyRequest, reply: FastifyReply)
     }
 
     // Upsert user in database
-    const dbUser = await prisma.user.upsert({
+    const dbUser = await prisma.users.upsert({
       where: { email: user.email! },
       update: {
         name: user.user_metadata?.name || user.email?.split('@')[0],
+        updatedAt: new Date(),
       },
       create: {
         id: user.id,
         email: user.email!,
         name: user.user_metadata?.name || user.email?.split('@')[0],
         password: '', // Empty since auth is handled by Supabase
+        updatedAt: new Date(),
       },
     })
 

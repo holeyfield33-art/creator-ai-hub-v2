@@ -32,7 +32,7 @@ export async function analyticsRoutes(fastify: FastifyInstance) {
     }
 
     // Get or create user
-    const user = await prisma.user.upsert({
+    const user = await prisma.users.upsert({
       where: { id: supabaseUser.id },
       update: {},
       create: {
@@ -53,7 +53,7 @@ export async function analyticsRoutes(fastify: FastifyInstance) {
     const platformFilter = platform ? { platform } : {};
 
     // Get scheduled posts with metrics
-    const posts = await prisma.scheduledPost.findMany({
+    const posts = await prisma.scheduled_posts.findMany({
       where: {
         userId: user.id,
         status: 'posted',
@@ -138,7 +138,7 @@ export async function analyticsRoutes(fastify: FastifyInstance) {
     );
 
     // Get top campaigns
-    const campaigns = await prisma.campaign.findMany({
+    const campaigns = await prisma.campaigns.findMany({
       where: { userId: user.id },
       include: {
         generatedAssets: {
@@ -148,7 +148,7 @@ export async function analyticsRoutes(fastify: FastifyInstance) {
                 status: 'posted',
                 postedAt: { gte: startDate },
               },
-              include: { metrics: true },
+              include: { post_metrics: true },
             },
           },
         },
@@ -160,8 +160,8 @@ export async function analyticsRoutes(fastify: FastifyInstance) {
       let impressions = 0;
       let engagements = 0;
 
-      campaign.generatedAssets.forEach((asset) => {
-        asset.scheduledPosts.forEach((post) => {
+      campaign.generated_assets.forEach((asset) => {
+        asset.scheduled_posts.forEach((post) => {
           posts += 1;
           post.metrics.forEach((metric) => {
             impressions += metric.impressions;
@@ -211,7 +211,7 @@ export async function analyticsRoutes(fastify: FastifyInstance) {
         return reply.status(401).send({ error: 'Invalid token' });
       }
 
-      const user = await prisma.user.upsert({
+      const user = await prisma.users.upsert({
         where: { id: supabaseUser.id },
         update: {},
         create: {
@@ -225,7 +225,7 @@ export async function analyticsRoutes(fastify: FastifyInstance) {
       const { id: campaignId } = request.params;
 
       // Verify campaign ownership
-      const campaign = await prisma.campaign.findFirst({
+      const campaign = await prisma.campaigns.findFirst({
         where: {
           id: campaignId,
           userId: user.id,
@@ -237,7 +237,7 @@ export async function analyticsRoutes(fastify: FastifyInstance) {
       }
 
       // Get posts with metrics
-      const assets = await prisma.generatedAsset.findMany({
+      const assets = await prisma.generated_assets.findMany({
         where: { campaignId },
         include: {
           scheduledPosts: {
@@ -253,7 +253,7 @@ export async function analyticsRoutes(fastify: FastifyInstance) {
       });
 
       const posts = assets.flatMap((asset) =>
-        asset.scheduledPosts.map((post) => ({
+        asset.scheduled_posts.map((post) => ({
           id: post.id,
           platform: post.platform,
           content: post.content.substring(0, 100) + (post.content.length > 100 ? '...' : ''),
@@ -316,7 +316,7 @@ export async function analyticsRoutes(fastify: FastifyInstance) {
       return reply.status(401).send({ error: 'Invalid token' });
     }
 
-    const user = await prisma.user.upsert({
+    const user = await prisma.users.upsert({
       where: { id: supabaseUser.id },
       update: {},
       create: {
@@ -331,7 +331,7 @@ export async function analyticsRoutes(fastify: FastifyInstance) {
     const oneHourAgo = new Date();
     oneHourAgo.setHours(oneHourAgo.getHours() - 1);
 
-    const posts = await prisma.scheduledPost.findMany({
+    const posts = await prisma.scheduled_posts.findMany({
       where: {
         userId: user.id,
         status: 'posted',
@@ -354,7 +354,7 @@ export async function analyticsRoutes(fastify: FastifyInstance) {
     // Create collect_metrics jobs
     const jobs = await Promise.all(
       postsNeedingMetrics.map((post) =>
-        prisma.job.create({
+        prisma.jobs.create({
           data: {
             type: 'collect_metrics',
             status: 'pending',
