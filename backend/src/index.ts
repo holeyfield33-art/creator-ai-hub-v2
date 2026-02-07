@@ -29,9 +29,8 @@ const fastify = Fastify({
 
 // Register CORS with Authorization header support
 // Allow frontend origin from env or default to localhost
-const allowedOrigins = [
+const allowedOrigins: (string | RegExp)[] = [
   'http://localhost:3000',
-  'https://glowing-dollop-5gp9pvwjpprpfp7q9-3000.app.github.dev',
   /\.app\.github\.dev$/,
 ]
 
