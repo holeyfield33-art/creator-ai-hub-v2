@@ -1,216 +1,117 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
 generator client {
   provider = "prisma-client-js"
 }
 
 datasource db {
-  provider  = "postgresql"
-  url       = env("DATABASE_URL")
-  directUrl = env("DIRECT_URL")
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
 }
 
-model campaign_analysis {
-  id           String    @id @default(uuid())
-  campaignId   String
-  analysisType String
-  results      Json
-  summary      String?
-  score        Float?
-  createdAt    DateTime  @default(now())
-  updatedAt       DateTime          @updatedAt
-  campaigns    campaigns @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+model User {
+  id        String   @id @default(uuid())
+  email     String   @unique
+  name      String?
+  password  String
+  role      String   @default("user") // user, admin
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
-  @@index([analysisType])
-  @@index([campaignId])
+  campaigns Campaign[]
+
+  @@map("users")
 }
 
-model campaign_metrics {
-  id                String    @id @default(uuid())
-  campaignId        String
-  totalPosts        Int       @default(0)
-  totalImpressions  Int       @default(0)
-  totalEngagements  Int       @default(0)
-  avgEngagementRate Float?    @default(0)
-  periodStart       DateTime
-  periodEnd         DateTime
-  createdAt         DateTime  @default(now())
-  updatedAt       DateTime          @updatedAt
-  campaigns         campaigns @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+model Campaign {
+  id          String   @id @default(uuid())
+  name        String
+  description String?
+  status      String   @default("draft") // draft, active, paused, completed
+  budget      Float?
+  userId      String
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
 
-  @@index([campaignId])
-  @@index([periodStart, periodEnd])
-}
+  user              User                @relation(fields: [userId], references: [id], onDelete: Cascade)
+  sources           CampaignSource[]
+  analyses          CampaignAnalysis[]
+  generatedAssets   GeneratedAsset[]
 
-model campaign_sources {
-  id              String    @id @default(uuid())
-  campaignId      String
-  sourceType      String
-  sourceUrl       String?
-  sourceText      String?
-  metadata        Json?
-  createdAt       DateTime  @default(now())
-  updatedAt       DateTime          @updatedAt
-  duration        Float?
-  language        String?
-  processingError String?
-  status          String    @default("uploaded")
-  transcriptText  String?
-  campaigns       campaigns @relation(fields: [campaignId], references: [id], onDelete: Cascade)
-
-  @@index([campaignId])
-  @@index([status])
-}
-
-model campaigns {
-  id                String              @id @default(uuid())
-  name              String
-  description       String?
-  status            String              @default("draft")
-  budget            Float?
-  userId            String
-  createdAt         DateTime            @default(now())
-  updatedAt       DateTime          @updatedAt
-  campaign_analysis campaign_analysis[]
-  campaign_metrics  campaign_metrics[]
-  campaign_sources  campaign_sources[]
-  users             users               @relation(fields: [userId], references: [id], onDelete: Cascade)
-  generated_assets  generated_assets[]
-
-  @@index([status])
+  @@map("campaigns")
   @@index([userId])
-}
-
-model generated_assets {
-  id              String            @id @default(uuid())
-  campaignId      String
-  assetType       String
-  content         String?
-  url             String?
-  metadata        Json?
-  status          String            @default("pending")
-  createdAt       DateTime          @default(now())
-  updatedAt       DateTime          @updatedAt
-  campaigns       campaigns         @relation(fields: [campaignId], references: [id], onDelete: Cascade)
-  scheduled_posts scheduled_posts[]
-
-  @@index([assetType])
-  @@index([campaignId])
   @@index([status])
 }
 
-model jobs {
-  id          String    @id @default(uuid())
-  type        String
-  status      String    @default("pending")
+model CampaignSource {
+  id          String   @id @default(uuid())
+  campaignId  String
+  sourceType  String   // url, text, file, social_media
+  sourceUrl   String?
+  sourceText  String?
+  metadata    Json?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  campaign Campaign @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+
+  @@map("campaign_sources")
+  @@index([campaignId])
+}
+
+model CampaignAnalysis {
+  id          String   @id @default(uuid())
+  campaignId  String
+  analysisType String  // sentiment, engagement, content_quality, audience
+  results     Json
+  summary     String?
+  score       Float?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  campaign Campaign @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+
+  @@map("campaign_analysis")
+  @@index([campaignId])
+  @@index([analysisType])
+}
+
+model GeneratedAsset {
+  id          String   @id @default(uuid())
+  campaignId  String
+  assetType   String   // text, image, video, social_post
+  content     String?
+  url         String?
+  metadata    Json?
+  status      String   @default("pending") // pending, generated, approved, rejected
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  campaign Campaign @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+
+  @@map("generated_assets")
+  @@index([campaignId])
+  @@index([assetType])
+  @@index([status])
+}
+
+model Job {
+  id          String   @id @default(uuid())
+  type        String   // analysis, generation, processing
+  status      String   @default("pending") // pending, running, completed, failed
   payload     Json
   result      Json?
   error       String?
-  attempts    Int       @default(0)
-  maxAttempts Int       @default(3)
-  createdAt   DateTime  @default(now())
-  updatedAt       DateTime          @updatedAt
+  attempts    Int      @default(0)
+  maxAttempts Int      @default(3)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
   startedAt   DateTime?
   completedAt DateTime?
 
-  @@index([createdAt])
-  @@index([status])
+  @@map("jobs")
   @@index([type])
-}
-
-model post_metrics {
-  id              String          @id @default(uuid())
-  scheduledPostId String
-  impressions     Int             @default(0)
-  engagements     Int             @default(0)
-  likes           Int             @default(0)
-  shares          Int             @default(0)
-  comments        Int             @default(0)
-  clicks          Int             @default(0)
-  engagementRate  Float?          @default(0)
-  fetchedAt       DateTime        @default(now())
-  platform        String
-  externalId      String?
-  createdAt       DateTime        @default(now())
-  updatedAt       DateTime          @updatedAt
-  scheduled_posts scheduled_posts @relation(fields: [scheduledPostId], references: [id], onDelete: Cascade)
-
-  @@index([fetchedAt])
-  @@index([platform])
-  @@index([scheduledPostId])
-}
-
-model scheduled_posts {
-  id                 String             @id @default(uuid())
-  userId             String
-  assetId            String
-  socialConnectionId String
-  platform           String
-  content            String
-  mediaUrls          String[]
-  scheduledFor       DateTime
-  status             String             @default("pending")
-  postedAt           DateTime?
-  platformPostId     String?
-  error              String?
-  metadata           Json?
-  createdAt          DateTime           @default(now())
-  updatedAt       DateTime          @updatedAt
-  post_metrics       post_metrics[]
-  generated_assets   generated_assets   @relation(fields: [assetId], references: [id], onDelete: Cascade)
-  social_connections social_connections @relation(fields: [socialConnectionId], references: [id], onDelete: Cascade)
-  users              users              @relation(fields: [userId], references: [id], onDelete: Cascade)
-
-  @@index([assetId])
-  @@index([scheduledFor])
-  @@index([socialConnectionId])
   @@index([status])
-  @@index([userId])
-}
-
-model social_connections {
-  id              String            @id @default(uuid())
-  userId          String
-  platform        String
-  platformUserId  String
-  username        String?
-  accessToken     String
-  refreshToken    String?
-  tokenExpiry     DateTime?
-  metadata        Json?
-  createdAt       DateTime          @default(now())
-  updatedAt       DateTime          @updatedAt
-  scheduled_posts scheduled_posts[]
-  users           users             @relation(fields: [userId], references: [id], onDelete: Cascade)
-
-  @@unique([userId, platform])
-  @@index([platform])
-  @@index([userId])
-}
-
-model usage_quotas {
-  id                  String   @id @default(uuid())
-  userId              String
-  quotaDate           DateTime @default(now()) @db.Date
-  transcriptionsUsed  Int      @default(0)
-  generationsUsed     Int      @default(0)
-  transcriptionsLimit Int      @default(10)
-  generationsLimit    Int      @default(20)
-  createdAt           DateTime @default(now())
-  updatedAt       DateTime          @updatedAt
-
-  @@unique([userId, quotaDate])
-  @@index([quotaDate])
-  @@index([userId])
-}
-
-model users {
-  id                 String               @id @default(uuid())
-  email              String               @unique
-  name               String?
-  password           String
-  role               String               @default("user")
-  createdAt          DateTime             @default(now())
-  updatedAt       DateTime          @updatedAt
-  campaigns          campaigns[]
-  scheduled_posts    scheduled_posts[]
-  social_connections social_connections[]
+  @@index([createdAt])
 }
