@@ -181,21 +181,70 @@ export async function uploadCampaignSourceHandler(
       }
 
       // For now, store file metadata with placeholder URL
+      // In a real implementation, we would:
+      // 1. Upload the file to storage (S3/Supabase Storage)
+      // 2. Create a transcription job (Whisper/other provider)
+      // 3. Once transcription completes, create the summarize job
+
       const source = await prisma.campaignSource.create({
         data: {
           campaignId: id,
           sourceType: 'file',
-          sourceUrl: `placeholder://files/${fileName}`,
+          sourceUrl: `pending://files/${fileName}`,
+          sourceText: `[Pending transcription for file: ${fileName}]`,
           metadata: {
             fileName,
             fileSize,
-            status: 'not_implemented',
-            message: 'File storage not yet implemented',
+            status: 'pending_transcription',
+            uploadedAt: new Date().toISOString(),
           },
         },
       })
 
-      return reply.status(201).send(source)
+      // Create a summarize job with placeholder text
+      // This simulates what would happen after transcription completes
+      // The placeholder text allows the Mock AI to generate a meaningful response
+      const placeholderTranscript = `
+        This is a video/audio file titled "${fileName}" uploaded for content analysis.
+        The file is ${fileSize ? Math.round(fileSize / 1024) + ' KB' : 'of unknown size'}.
+
+        [In production, this would contain the actual transcript from the audio/video file]
+
+        For demonstration purposes, this content represents a typical creator's video about:
+        - Building an engaged audience through consistent content creation
+        - Best practices for social media marketing in 2024
+        - Tips for repurposing long-form content into multiple short-form posts
+        - The importance of understanding your target audience
+        - How to create compelling hooks that capture attention
+
+        The creator emphasizes authenticity and value-driven content as the keys to success.
+      `.trim()
+
+      const job = await prisma.job.create({
+        data: {
+          type: 'summarize',
+          status: 'pending',
+          payload: {
+            campaignId: id,
+            sourceId: source.id,
+            text: placeholderTranscript,
+            isPlaceholder: true,
+            originalFileName: fileName,
+          },
+        },
+      })
+
+      request.log.info(`Created summarize job ${job.id} for file upload: ${fileName}`)
+
+      return reply.status(201).send({
+        source,
+        job: {
+          id: job.id,
+          status: job.status,
+          type: job.type,
+        },
+        message: 'File uploaded. Transcription and analysis in progress.',
+      })
     } else {
       return reply.status(400).send({ error: 'Invalid source type' })
     }
