@@ -4,32 +4,68 @@ import prisma from '../lib/prisma'
 import { getUserIdFromRequest } from '../lib/auth'
 
 // In-memory store for PKCE verifiers (in production, use Redis or database)
-const pkceStore = new Map<string, { verifier: string; userId: string; timestamp: number }>()
+export const pkceStore = new Map<string, { verifier: string; userId: string; timestamp: number }>()
 
 // Clean up expired PKCE entries (older than 10 minutes)
-setInterval(() => {
-  const now = Date.now()
-  for (const [key, value] of pkceStore.entries()) {
+export function cleanExpiredPkceEntries(
+  store: Map<string, { verifier: string; userId: string; timestamp: number }> = pkceStore,
+  now: number = Date.now()
+): number {
+  let deleted = 0
+  for (const [key, value] of store.entries()) {
     if (now - value.timestamp > 10 * 60 * 1000) {
-      pkceStore.delete(key)
+      store.delete(key)
+      deleted++
     }
   }
-}, 60 * 1000) // Run every minute
+  return deleted
+}
+
+// Start the PKCE cleanup scheduler. Returns a stop() function to clear the interval.
+export function startPkceCleanupScheduler(options?: {
+  intervalMs?: number
+  scheduler?: typeof globalThis.setInterval
+  cancel?: typeof globalThis.clearInterval
+}): { stop: () => void } {
+  const intervalMs = options?.intervalMs ?? 60 * 1000
+  const schedule = options?.scheduler ?? globalThis.setInterval
+  const cancel = options?.cancel ?? globalThis.clearInterval
+
+  const id = schedule(() => {
+    cleanExpiredPkceEntries()
+  }, intervalMs)
+
+  return {
+    stop: () => cancel(id),
+  }
+}
 
 // Generate cryptographically secure random string
-function generateRandomString(length: number): string {
+export function generateRandomString(
+  length: number,
+  randomBytesFn: (size: number) => Buffer = crypto.randomBytes
+): string {
   const characters = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-._~'
-  const randomBytes = crypto.randomBytes(length)
-  let result = ''
-  for (let i = 0; i < length; i++) {
-    result += characters[randomBytes[i] % characters.length]
+  try {
+    const randomBytes = randomBytesFn(length)
+    let result = ''
+    for (let i = 0; i < length; i++) {
+      result += characters[randomBytes[i] % characters.length]
+    }
+    return result
+  } catch {
+    // Fallback: if crypto fails (e.g. entropy exhaustion), use Math.random
+    let result = ''
+    for (let i = 0; i < length; i++) {
+      result += characters[Math.floor(Math.random() * characters.length)]
+    }
+    return result
   }
-  return result
 }
 
 // Generate PKCE code verifier and challenge
-function generatePKCE(): { verifier: string; challenge: string } {
-  const verifier = generateRandomString(64)
+export function generatePKCE(randomBytesFn?: (size: number) => Buffer): { verifier: string; challenge: string } {
+  const verifier = generateRandomString(64, randomBytesFn)
   const challenge = crypto
     .createHash('sha256')
     .update(verifier)
@@ -38,7 +74,7 @@ function generatePKCE(): { verifier: string; challenge: string } {
 }
 
 // Generate secure state with HMAC signature
-function generateState(userId: string): string {
+export function generateState(userId: string): string {
   const stateId = generateRandomString(32)
   const timestamp = Date.now().toString()
   const data = `${stateId}:${userId}:${timestamp}`
@@ -48,7 +84,7 @@ function generateState(userId: string): string {
 }
 
 // Verify state signature
-function verifyState(state: string): { stateId: string; userId: string; timestamp: number } | null {
+export function verifyState(state: string): { stateId: string; userId: string; timestamp: number } | null {
   const parts = state.split(':')
   if (parts.length !== 4) return null
 
