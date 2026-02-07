@@ -20,6 +20,7 @@ import {
   schedulePostHandler,
   listScheduledPostsHandler,
   cancelScheduledPostHandler,
+  startPkceCleanupScheduler,
 } from './routes/social'
 import { analyticsRoutes } from './routes/analytics'
 
@@ -80,6 +81,9 @@ fastify.delete('/api/schedule/:postId', cancelScheduledPostHandler)
 
 // Analytics endpoints
 fastify.register(analyticsRoutes)
+
+// Start PKCE cleanup scheduler (cleans expired OAuth entries every 60s)
+startPkceCleanupScheduler()
 
 // Start server
 const start = async () => {

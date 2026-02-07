@@ -34,6 +34,18 @@ export const mockPrismaClient = {
   job: {
     create: jest.fn() as any,
   },
+  socialConnection: {
+    findMany: jest.fn() as any,
+    findFirst: jest.fn() as any,
+    upsert: jest.fn() as any,
+    delete: jest.fn() as any,
+  },
+  scheduledPost: {
+    create: jest.fn() as any,
+    findMany: jest.fn() as any,
+    findFirst: jest.fn() as any,
+    update: jest.fn() as any,
+  },
 };
 
 // Mock AI Provider
@@ -85,6 +97,7 @@ export function createMockReply() {
     code: jest.fn().mockReturnThis() as any,
     send: jest.fn().mockReturnThis() as any,
     status: jest.fn().mockReturnThis() as any,
+    redirect: jest.fn().mockReturnThis() as any,
   };
   return reply;
 }
