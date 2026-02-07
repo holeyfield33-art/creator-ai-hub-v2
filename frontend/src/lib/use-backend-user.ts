@@ -24,8 +24,8 @@ export function useBackendUser() {
         const user = await fetchCurrentUser()
         setBackendUser(user)
         setError(null)
-      } catch (err: unknown) {
-        setError(err instanceof Error ? err.message : 'Failed to load user')
+      } catch (err: any) {
+        setError(err.message)
         setBackendUser(null)
       } finally {
         setLoading(false)
