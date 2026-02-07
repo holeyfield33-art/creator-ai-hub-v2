@@ -1,41 +1,7 @@
 import { FastifyRequest, FastifyReply } from 'fastify'
-import { createClient } from '@supabase/supabase-js'
-import { PrismaClient } from '@prisma/client'
 import { SUPPORTED_CHANNELS } from '../prompts/generate-assets'
-import {
-  SAFETY_CONFIG,
-  checkActiveJob,
-  validateFile,
-  checkTranscriptionQuota,
-  getUserQuotaStatus,
-} from '../lib/safety-guards'
-import { processSource, getCampaignStatus } from '../lib/processing-pipeline'
-
-const prisma = new PrismaClient()
-
-const supabase = createClient(
-  process.env.SUPABASE_URL || '',
-  process.env.SUPABASE_SERVICE_ROLE_KEY || ''
-)
-
-// Auth middleware helper
-async function getUserFromToken(request: FastifyRequest): Promise<string | null> {
-  const authHeader = request.headers.authorization
-  if (!authHeader?.startsWith('Bearer ')) {
-    return null
-  }
-
-  const token = authHeader.substring(7)
-  try {
-    const { data, error } = await supabase.auth.getUser(token)
-    if (error || !data.user) {
-      return null
-    }
-    return data.user.id
-  } catch (err) {
-    return null
-  }
-}
+import prisma from '../lib/prisma'
+import { requireAuth } from '../lib/auth'
 
 // POST /api/campaigns - Create new campaign
 export async function createCampaignHandler(
@@ -44,23 +10,25 @@ export async function createCampaignHandler(
   }>,
   reply: FastifyReply
 ) {
-  const userId = await getUserFromToken(request)
-  if (!userId) {
-    return reply.status(401).send({ error: 'Unauthorized' })
-  }
+  const userId = await requireAuth(request, reply)
+  if (!userId) return
 
   const { name, description, budget } = request.body
 
-  if (!name || name.trim().length === 0) {
+  if (!name || typeof name !== 'string' || name.trim().length === 0) {
     return reply.status(400).send({ error: 'Campaign name is required' })
   }
 
+  if (budget !== undefined && budget !== null && (typeof budget !== 'number' || budget < 0)) {
+    return reply.status(400).send({ error: 'Budget must be a non-negative number' })
+  }
+
   try {
-    const campaign = await prisma.campaigns.create({
+    const campaign = await prisma.campaign.create({
       data: {
         name: name.trim(),
         description: description?.trim(),
-        budget,
+        budget: budget ?? null,
         userId,
         status: 'draft',
       },
@@ -78,22 +46,20 @@ export async function listCampaignsHandler(
   request: FastifyRequest,
   reply: FastifyReply
 ) {
-  const userId = await getUserFromToken(request)
-  if (!userId) {
-    return reply.status(401).send({ error: 'Unauthorized' })
-  }
+  const userId = await requireAuth(request, reply)
+  if (!userId) return
 
   try {
-    const campaigns = await prisma.campaigns.findMany({
+    const campaigns = await prisma.campaign.findMany({
       where: { userId },
       orderBy: { createdAt: 'desc' },
       include: {
-        campaign_sources: true,
+        sources: true,
         _count: {
           select: {
-            campaign_sources: true,
-            campaign_analysis: true,
-            generated_assets: true,
+            sources: true,
+            analyses: true,
+            generatedAssets: true,
           },
         },
       },
@@ -111,24 +77,22 @@ export async function getCampaignHandler(
   request: FastifyRequest<{ Params: { id: string } }>,
   reply: FastifyReply
 ) {
-  const userId = await getUserFromToken(request)
-  if (!userId) {
-    return reply.status(401).send({ error: 'Unauthorized' })
-  }
+  const userId = await requireAuth(request, reply)
+  if (!userId) return
 
   const { id } = request.params
 
   try {
-    const campaign = await prisma.campaigns.findFirst({
+    const campaign = await prisma.campaign.findFirst({
       where: { id, userId },
       include: {
-        campaign_sources: {
+        sources: {
           orderBy: { createdAt: 'desc' },
         },
-        campaign_analysis: {
+        analyses: {
           orderBy: { createdAt: 'desc' },
         },
-        generated_assets: {
+        generatedAssets: {
           orderBy: { createdAt: 'desc' },
         },
       },
@@ -158,17 +122,15 @@ export async function uploadCampaignSourceHandler(
   }>,
   reply: FastifyReply
 ) {
-  const userId = await getUserFromToken(request)
-  if (!userId) {
-    return reply.status(401).send({ error: 'Unauthorized' })
-  }
+  const userId = await requireAuth(request, reply)
+  if (!userId) return
 
   const { id } = request.params
   const { sourceType, text, fileName, fileSize } = request.body
 
   // Verify campaign belongs to user
   try {
-    const campaign = await prisma.campaigns.findFirst({
+    const campaign = await prisma.campaign.findFirst({
       where: { id, userId },
     })
 
@@ -182,7 +144,7 @@ export async function uploadCampaignSourceHandler(
         return reply.status(400).send({ error: 'Text content is required' })
       }
 
-      const source = await prisma.campaign_sources.create({
+      const source = await prisma.campaignSource.create({
         data: {
           campaignId: id,
           sourceType: 'text',
@@ -191,7 +153,7 @@ export async function uploadCampaignSourceHandler(
       })
 
       // Create a summarize job for this text
-      const job = await prisma.jobs.create({
+      const job = await prisma.job.create({
         data: {
           type: 'summarize',
           status: 'pending',
@@ -219,7 +181,7 @@ export async function uploadCampaignSourceHandler(
       }
 
       // For now, store file metadata with placeholder URL
-      const source = await prisma.campaign_sources.create({
+      const source = await prisma.campaignSource.create({
         data: {
           campaignId: id,
           sourceType: 'file',
@@ -243,131 +205,7 @@ export async function uploadCampaignSourceHandler(
   }
 }
 
-// POST /api/campaigns/:id/sources - Upload and auto-process source
-export async function uploadSourceHandler(
-  request: FastifyRequest<{
-    Params: { id: string }
-    Body: {
-      fileUrl: string
-      fileKey: string
-      mimeType: string
-      sizeBytes: number
-      duration?: number
-      fileName?: string
-    }
-  }>,
-  reply: FastifyReply
-) {
-  const userId = await getUserFromToken(request)
-  if (!userId) {
-    return reply.status(401).send({ error: 'Unauthorized' })
-  }
-
-  const { id } = request.params
-  const { fileUrl, fileKey, mimeType, sizeBytes, duration, fileName } = request.body
-
-  if (!fileUrl || !mimeType) {
-    return reply.status(400).send({ error: 'fileUrl and mimeType are required' })
-  }
-
-  try {
-    // Verify campaign belongs to user
-    const campaign = await prisma.campaigns.findFirst({
-      where: { id, userId },
-    })
-
-    if (!campaign) {
-      return reply.status(404).send({ error: 'Campaign not found' })
-    }
-
-    // Safety check: active job
-    const activeCheck = await checkActiveJob(userId)
-    if (!activeCheck.allowed) {
-      return reply.status(429).send({ error: activeCheck.reason })
-    }
-
-    // Safety check: file constraints
-    const fileCheck = validateFile(mimeType, sizeBytes, duration)
-    if (!fileCheck.allowed) {
-      return reply.status(400).send({ error: fileCheck.reason })
-    }
-
-    // Safety check: transcription quota
-    const quotaCheck = await checkTranscriptionQuota(userId)
-    if (!quotaCheck.allowed) {
-      return reply.status(429).send({ error: quotaCheck.reason })
-    }
-
-    // Create source record
-    const source = await prisma.campaign_sources.create({
-      data: {
-        campaignId: id,
-        sourceType: mimeType.startsWith('video/') ? 'video' : 'audio',
-        sourceUrl: fileUrl,
-        status: 'uploaded',
-        metadata: {
-          fileName,
-          mimeType,
-          sizeBytes,
-          duration,
-          fileKey,
-          uploadedAt: new Date().toISOString(),
-        },
-      },
-    })
-
-    request.log.info(`[Upload] Created source ${source.id} for campaign ${id}`)
-
-    // Start auto processing (async, don't await)
-    if (SAFETY_CONFIG.AUTO_PROCESSING) {
-      processSource(source.id, id, userId).catch(error => {
-        request.log.error({ error }, '[Upload] Auto-processing failed')
-      })
-    }
-
-    return reply.status(201).send({ source })
-  } catch (error) {
-    request.log.error(error)
-    return reply.status(500).send({ error: 'Failed to upload source' })
-  }
-}
-
-// GET /api/campaigns/:id/status - Get campaign processing status
-export async function getCampaignStatusHandler(
-  request: FastifyRequest<{ Params: { id: string } }>,
-  reply: FastifyReply
-) {
-  const userId = await getUserFromToken(request)
-  if (!userId) {
-    return reply.status(401).send({ error: 'Unauthorized' })
-  }
-
-  const { id } = request.params
-
-  try {
-    // Verify campaign belongs to user
-    const campaign = await prisma.campaigns.findFirst({
-      where: { id, userId },
-    })
-
-    if (!campaign) {
-      return reply.status(404).send({ error: 'Campaign not found' })
-    }
-
-    const status = await getCampaignStatus(id)
-    const quotaStatus = await getUserQuotaStatus(userId)
-
-    return reply.send({
-      ...status,
-      quotas: quotaStatus,
-    })
-  } catch (error) {
-    request.log.error(error)
-    return reply.status(500).send({ error: 'Failed to get status' })
-  }
-}
-
-// POST /api/campaigns/:id/sources - Register uploaded video source (DEPRECATED - use uploadSourceHandler)
+// POST /api/campaigns/:id/sources - Register uploaded video source
 export async function registerCampaignSourceHandler(
   request: FastifyRequest<{
     Params: { id: string }
@@ -381,10 +219,8 @@ export async function registerCampaignSourceHandler(
   }>,
   reply: FastifyReply
 ) {
-  const userId = await getUserFromToken(request)
-  if (!userId) {
-    return reply.status(401).send({ error: 'Unauthorized' })
-  }
+  const userId = await requireAuth(request, reply)
+  if (!userId) return
 
   const { id } = request.params
   const { sourceType, sourceUrl, fileName, mimeType, size } = request.body
@@ -395,7 +231,7 @@ export async function registerCampaignSourceHandler(
 
   try {
     // Verify campaign belongs to user
-    const campaign = await prisma.campaigns.findFirst({
+    const campaign = await prisma.campaign.findFirst({
       where: { id, userId },
     })
 
@@ -404,7 +240,7 @@ export async function registerCampaignSourceHandler(
     }
 
     // Create source record
-    const source = await prisma.campaign_sources.create({
+    const source = await prisma.campaignSource.create({
       data: {
         campaignId: id,
         sourceType: sourceType || 'video',
@@ -420,7 +256,7 @@ export async function registerCampaignSourceHandler(
 
     // Create stub analysis to unlock Generate Assets
     // This will be replaced with real AI analysis later
-    const analysis = await prisma.campaign_analysis.create({
+    const analysis = await prisma.campaignAnalysis.create({
       data: {
         campaignId: id,
         analysisType: 'content_summary',
@@ -444,7 +280,7 @@ export async function registerCampaignSourceHandler(
     request.log.info(`Created source ${source.id} and stub analysis ${analysis.id} for campaign ${id}`)
 
     // Update campaign status to ready
-    await prisma.campaigns.update({
+    await prisma.campaign.update({
       where: { id },
       data: { status: 'ready' },
     })
@@ -468,10 +304,8 @@ export async function generateAssetsHandler(
   }>,
   reply: FastifyReply
 ) {
-  const userId = await getUserFromToken(request)
-  if (!userId) {
-    return reply.status(401).send({ error: 'Unauthorized' })
-  }
+  const userId = await requireAuth(request, reply)
+  if (!userId) return
 
   const { id } = request.params
   const { channels } = request.body
@@ -492,10 +326,10 @@ export async function generateAssetsHandler(
 
   try {
     // Verify campaign belongs to user and has analysis
-    const campaign = await prisma.campaigns.findFirst({
+    const campaign = await prisma.campaign.findFirst({
       where: { id, userId },
       include: {
-        campaign_analysis: {
+        analyses: {
           where: { analysisType: 'content_summary' },
           orderBy: { createdAt: 'desc' },
           take: 1,
@@ -507,16 +341,16 @@ export async function generateAssetsHandler(
       return reply.status(404).send({ error: 'Campaign not found' })
     }
 
-    if (!campaign.campaign_analysis || campaign.campaign_analysis.length === 0) {
+    if (!campaign.analyses || campaign.analyses.length === 0) {
       return reply.status(400).send({ error: 'Campaign must be analyzed first (upload text)' })
     }
 
-    const analysis = campaign.campaign_analysis[0]
+    const analysis = campaign.analyses[0]
 
     // Create a generation job for each channel
     const jobs = await Promise.all(
       channels.map((channel) =>
-        prisma.jobs.create({
+        prisma.job.create({
           data: {
             type: 'generate_asset',
             status: 'pending',
@@ -537,7 +371,7 @@ export async function generateAssetsHandler(
 
     return reply.status(201).send({
       message: `Created ${jobs.length} asset generation job(s)`,
-      jobs: jobs.map((j: any) => ({ id: j.id, type: j.type, status: j.status })),
+      jobs: jobs.map((j) => ({ id: j.id, type: j.type, status: j.status })),
     })
   } catch (error) {
     request.log.error(error)
@@ -550,16 +384,14 @@ export async function deleteCampaignHandler(
   request: FastifyRequest<{ Params: { id: string } }>,
   reply: FastifyReply
 ) {
-  const userId = await getUserFromToken(request)
-  if (!userId) {
-    return reply.status(401).send({ error: 'Unauthorized' })
-  }
+  const userId = await requireAuth(request, reply)
+  if (!userId) return
 
   const { id } = request.params
 
   try {
     // Verify campaign belongs to user
-    const campaign = await prisma.campaigns.findFirst({
+    const campaign = await prisma.campaign.findFirst({
       where: { id, userId },
     })
 
@@ -568,7 +400,7 @@ export async function deleteCampaignHandler(
     }
 
     // Delete campaign (cascade will delete related records)
-    await prisma.campaigns.delete({
+    await prisma.campaign.delete({
       where: { id },
     })
 
@@ -584,15 +416,13 @@ export async function getJobStatusHandler(
   request: FastifyRequest<{ Params: { id: string } }>,
   reply: FastifyReply
 ) {
-  const userId = await getUserFromToken(request)
-  if (!userId) {
-    return reply.status(401).send({ error: 'Unauthorized' })
-  }
+  const userId = await requireAuth(request, reply)
+  if (!userId) return
 
   const { id } = request.params
 
   try {
-    const job = await prisma.jobs.findUnique({
+    const job = await prisma.job.findUnique({
       where: { id },
       select: {
         id: true,
@@ -600,6 +430,7 @@ export async function getJobStatusHandler(
         status: true,
         result: true,
         error: true,
+        payload: true,
         createdAt: true,
         completedAt: true,
       },
@@ -609,7 +440,22 @@ export async function getJobStatusHandler(
       return reply.status(404).send({ error: 'Job not found' })
     }
 
-    return reply.send(job)
+    // Verify the job belongs to the requesting user's campaign
+    const payload = job.payload as Record<string, unknown> | null
+    const campaignId = payload?.campaignId as string | undefined
+    if (campaignId) {
+      const campaign = await prisma.campaign.findFirst({
+        where: { id: campaignId, userId },
+        select: { id: true },
+      })
+      if (!campaign) {
+        return reply.status(404).send({ error: 'Job not found' })
+      }
+    }
+
+    // Don't expose raw payload to the client
+    const { payload: _payload, ...jobResponse } = job
+    return reply.send(jobResponse)
   } catch (error) {
     request.log.error(error)
     return reply.status(500).send({ error: 'Failed to get job status' })
@@ -624,10 +470,8 @@ export async function updateAssetHandler(
   }>,
   reply: FastifyReply
 ) {
-  const userId = await getUserFromToken(request)
-  if (!userId) {
-    return reply.status(401).send({ error: 'Unauthorized' })
-  }
+  const userId = await requireAuth(request, reply)
+  if (!userId) return
 
   const { id } = request.params
   const { content } = request.body
@@ -638,21 +482,21 @@ export async function updateAssetHandler(
 
   try {
     // Verify asset belongs to user's campaign
-    const asset = await prisma.generated_assets.findFirst({
+    const asset = await prisma.generatedAsset.findFirst({
       where: { id },
       include: {
-        campaigns: {
+        campaign: {
           select: { userId: true },
         },
       },
     })
 
-    if (!asset || asset.campaigns.userId !== userId) {
+    if (!asset || asset.campaign.userId !== userId) {
       return reply.status(404).send({ error: 'Asset not found' })
     }
 
     // Update asset content
-    const updatedAsset = await prisma.generated_assets.update({
+    const updatedAsset = await prisma.generatedAsset.update({
       where: { id },
       data: {
         content: content.trim(),

@@ -1,42 +1,71 @@
 import { FastifyRequest, FastifyReply } from 'fastify'
-import { PrismaClient } from '@prisma/client'
-import { createClient } from '@supabase/supabase-js'
 import crypto from 'crypto'
-
-const prisma = new PrismaClient()
-
-const supabase = createClient(
-  process.env.SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!
-)
+import prisma from '../lib/prisma'
+import { getUserIdFromRequest } from '../lib/auth'
 
 // In-memory store for PKCE verifiers (in production, use Redis or database)
-const pkceStore = new Map<string, { verifier: string; userId: string; timestamp: number }>()
+export const pkceStore = new Map<string, { verifier: string; userId: string; timestamp: number }>()
 
 // Clean up expired PKCE entries (older than 10 minutes)
-setInterval(() => {
-  const now = Date.now()
-  for (const [key, value] of pkceStore.entries()) {
+export function cleanExpiredPkceEntries(
+  store: Map<string, { verifier: string; userId: string; timestamp: number }> = pkceStore,
+  now: number = Date.now()
+): number {
+  let deleted = 0
+  for (const [key, value] of store.entries()) {
     if (now - value.timestamp > 10 * 60 * 1000) {
-      pkceStore.delete(key)
+      store.delete(key)
+      deleted++
     }
   }
-}, 60 * 1000) // Run every minute
+  return deleted
+}
+
+// Start the PKCE cleanup scheduler. Returns a stop() function to clear the interval.
+export function startPkceCleanupScheduler(options?: {
+  intervalMs?: number
+  scheduler?: typeof globalThis.setInterval
+  cancel?: typeof globalThis.clearInterval
+}): { stop: () => void } {
+  const intervalMs = options?.intervalMs ?? 60 * 1000
+  const schedule = options?.scheduler ?? globalThis.setInterval
+  const cancel = options?.cancel ?? globalThis.clearInterval
+
+  const id = schedule(() => {
+    cleanExpiredPkceEntries()
+  }, intervalMs)
+
+  return {
+    stop: () => cancel(id),
+  }
+}
 
 // Generate cryptographically secure random string
-function generateRandomString(length: number): string {
+export function generateRandomString(
+  length: number,
+  randomBytesFn: (size: number) => Buffer = crypto.randomBytes
+): string {
   const characters = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-._~'
-  const randomBytes = crypto.randomBytes(length)
-  let result = ''
-  for (let i = 0; i < length; i++) {
-    result += characters[randomBytes[i] % characters.length]
+  try {
+    const randomBytes = randomBytesFn(length)
+    let result = ''
+    for (let i = 0; i < length; i++) {
+      result += characters[randomBytes[i] % characters.length]
+    }
+    return result
+  } catch {
+    // Fallback: if crypto fails (e.g. entropy exhaustion), use Math.random
+    let result = ''
+    for (let i = 0; i < length; i++) {
+      result += characters[Math.floor(Math.random() * characters.length)]
+    }
+    return result
   }
-  return result
 }
 
 // Generate PKCE code verifier and challenge
-function generatePKCE(): { verifier: string; challenge: string } {
-  const verifier = generateRandomString(64)
+export function generatePKCE(randomBytesFn?: (size: number) => Buffer): { verifier: string; challenge: string } {
+  const verifier = generateRandomString(64, randomBytesFn)
   const challenge = crypto
     .createHash('sha256')
     .update(verifier)
@@ -45,7 +74,7 @@ function generatePKCE(): { verifier: string; challenge: string } {
 }
 
 // Generate secure state with HMAC signature
-function generateState(userId: string): string {
+export function generateState(userId: string): string {
   const stateId = generateRandomString(32)
   const timestamp = Date.now().toString()
   const data = `${stateId}:${userId}:${timestamp}`
@@ -55,7 +84,7 @@ function generateState(userId: string): string {
 }
 
 // Verify state signature
-function verifyState(state: string): { stateId: string; userId: string; timestamp: number } | null {
+export function verifyState(state: string): { stateId: string; userId: string; timestamp: number } | null {
   const parts = state.split(':')
   if (parts.length !== 4) return null
 
@@ -73,29 +102,16 @@ function verifyState(state: string): { stateId: string; userId: string; timestam
   return { stateId, userId, timestamp: ts }
 }
 
-// Helper to get user from Authorization header
-async function getUserFromAuth(authorization?: string) {
-  if (!authorization?.startsWith('Bearer ')) {
-    throw new Error('Unauthorized')
-  }
-
-  const token = authorization.substring(7)
-  const { data: { user }, error } = await supabase.auth.getUser(token)
-  
-  if (error || !user) {
-    throw new Error('Unauthorized')
-  }
-
-  return user
-}
-
 // OAuth Connect - Initiate X/Twitter OAuth flow
 export async function connectXHandler(
   request: FastifyRequest,
   reply: FastifyReply
 ) {
   try {
-    const user = await getUserFromAuth(request.headers.authorization)
+    const userId = await getUserIdFromRequest(request)
+    if (!userId) {
+      return reply.code(401).send({ error: 'Unauthorized' })
+    }
 
     const clientId = process.env.X_CLIENT_ID
     const redirectUri = process.env.X_CALLBACK_URL
@@ -108,13 +124,13 @@ export async function connectXHandler(
     const { verifier, challenge } = generatePKCE()
 
     // Generate secure state with HMAC signature for CSRF protection
-    const state = generateState(user.id)
+    const state = generateState(userId)
     const stateId = state.split(':')[0]
 
     // Store PKCE verifier keyed by stateId
     pkceStore.set(stateId, {
       verifier,
-      userId: user.id,
+      userId,
       timestamp: Date.now(),
     })
 
@@ -129,8 +145,8 @@ export async function connectXHandler(
       `code_challenge_method=S256`
 
     return reply.send({ authUrl })
-  } catch (error: any) {
-    return reply.code(401).send({ error: error.message })
+  } catch (error) {
+    return reply.code(401).send({ error: error instanceof Error ? error.message : 'Unauthorized' })
   }
 }
 
@@ -213,7 +229,7 @@ export async function xCallbackHandler(
       : null
 
     // Store or update connection
-    const connection = await prisma.social_connections.upsert({
+    const connection = await prisma.socialConnection.upsert({
       where: {
         userId_platform: {
           userId,
@@ -253,11 +269,14 @@ export async function listConnectionsHandler(
   request: FastifyRequest,
   reply: FastifyReply
 ) {
-  try {
-    const user = await getUserFromAuth(request.headers.authorization)
+  const userId = await getUserIdFromRequest(request)
+  if (!userId) {
+    return reply.code(401).send({ error: 'Unauthorized' })
+  }
 
-    const connections = await prisma.social_connections.findMany({
-      where: { userId: user.id },
+  try {
+    const connections = await prisma.socialConnection.findMany({
+      where: { userId },
       select: {
         id: true,
         platform: true,
@@ -268,8 +287,9 @@ export async function listConnectionsHandler(
     })
 
     return reply.send({ connections })
-  } catch (error: any) {
-    return reply.code(401).send({ error: error.message })
+  } catch (error) {
+    console.error('List connections error:', error)
+    return reply.code(500).send({ error: 'Failed to list connections' })
   }
 }
 
@@ -280,15 +300,19 @@ export async function disconnectHandler(
   }>,
   reply: FastifyReply
 ) {
-  try {
-    const user = await getUserFromAuth(request.headers.authorization)
-    const { connectionId } = request.params
+  const userId = await getUserIdFromRequest(request)
+  if (!userId) {
+    return reply.code(401).send({ error: 'Unauthorized' })
+  }
 
+  const { connectionId } = request.params
+
+  try {
     // Verify connection belongs to user
-    const connection = await prisma.social_connections.findFirst({
+    const connection = await prisma.socialConnection.findFirst({
       where: {
         id: connectionId,
-        userId: user.id,
+        userId,
       },
     })
 
@@ -297,13 +321,14 @@ export async function disconnectHandler(
     }
 
     // Delete connection
-    await prisma.social_connections.delete({
+    await prisma.socialConnection.delete({
       where: { id: connectionId },
     })
 
     return reply.send({ success: true })
-  } catch (error: any) {
-    return reply.code(401).send({ error: error.message })
+  } catch (error) {
+    console.error('Disconnect error:', error)
+    return reply.code(500).send({ error: 'Failed to disconnect' })
   }
 }
 
@@ -320,16 +345,20 @@ export async function schedulePostHandler(
   }>,
   reply: FastifyReply
 ) {
-  try {
-    const user = await getUserFromAuth(request.headers.authorization)
-    const { assetId, connectionId, scheduledFor, content, mediaUrls = [] } = request.body
+  const userId = await getUserIdFromRequest(request)
+  if (!userId) {
+    return reply.code(401).send({ error: 'Unauthorized' })
+  }
 
+  const { assetId, connectionId, scheduledFor, content, mediaUrls = [] } = request.body
+
+  try {
     // Verify asset exists and belongs to user
-    const asset = await prisma.generated_assets.findFirst({
+    const asset = await prisma.generatedAsset.findFirst({
       where: {
         id: assetId,
-        campaigns: {
-          userId: user.id,
+        campaign: {
+          userId,
         },
       },
     })
@@ -339,10 +368,10 @@ export async function schedulePostHandler(
     }
 
     // Verify connection belongs to user
-    const connection = await prisma.social_connections.findFirst({
+    const connection = await prisma.socialConnection.findFirst({
       where: {
         id: connectionId,
-        userId: user.id,
+        userId,
       },
     })
 
@@ -351,9 +380,9 @@ export async function schedulePostHandler(
     }
 
     // Create scheduled post
-    const scheduledPost = await prisma.scheduled_posts.create({
+    const scheduledPost = await prisma.scheduledPost.create({
       data: {
-        userId: user.id,
+        userId,
         assetId,
         socialConnectionId: connectionId,
         platform: connection.platform,
@@ -365,9 +394,9 @@ export async function schedulePostHandler(
     })
 
     return reply.send({ scheduledPost })
-  } catch (error: any) {
+  } catch (error) {
     console.error('Schedule post error:', error)
-    return reply.code(400).send({ error: error.message })
+    return reply.code(400).send({ error: error instanceof Error ? error.message : 'Failed to schedule post' })
   }
 }
 
@@ -376,20 +405,23 @@ export async function listScheduledPostsHandler(
   request: FastifyRequest,
   reply: FastifyReply
 ) {
-  try {
-    const user = await getUserFromAuth(request.headers.authorization)
+  const userId = await getUserIdFromRequest(request)
+  if (!userId) {
+    return reply.code(401).send({ error: 'Unauthorized' })
+  }
 
-    const posts = await prisma.scheduled_posts.findMany({
-      where: { userId: user.id },
+  try {
+    const posts = await prisma.scheduledPost.findMany({
+      where: { userId },
       include: {
-        generated_assets: {
+        asset: {
           select: {
             id: true,
             content: true,
             assetType: true,
           },
         },
-        social_connections: {
+        socialConnection: {
           select: {
             platform: true,
             username: true,
@@ -400,8 +432,9 @@ export async function listScheduledPostsHandler(
     })
 
     return reply.send({ posts })
-  } catch (error: any) {
-    return reply.code(401).send({ error: error.message })
+  } catch (error) {
+    console.error('List scheduled posts error:', error)
+    return reply.code(500).send({ error: 'Failed to list scheduled posts' })
   }
 }
 
@@ -412,15 +445,19 @@ export async function cancelScheduledPostHandler(
   }>,
   reply: FastifyReply
 ) {
-  try {
-    const user = await getUserFromAuth(request.headers.authorization)
-    const { postId } = request.params
+  const userId = await getUserIdFromRequest(request)
+  if (!userId) {
+    return reply.code(401).send({ error: 'Unauthorized' })
+  }
 
+  const { postId } = request.params
+
+  try {
     // Verify post belongs to user
-    const post = await prisma.scheduled_posts.findFirst({
+    const post = await prisma.scheduledPost.findFirst({
       where: {
         id: postId,
-        userId: user.id,
+        userId,
         status: 'pending', // Can only cancel pending posts
       },
     })
@@ -430,13 +467,14 @@ export async function cancelScheduledPostHandler(
     }
 
     // Update status to cancelled
-    await prisma.scheduled_posts.update({
+    await prisma.scheduledPost.update({
       where: { id: postId },
       data: { status: 'cancelled' },
     })
 
     return reply.send({ success: true })
-  } catch (error: any) {
-    return reply.code(401).send({ error: error.message })
+  } catch (error) {
+    console.error('Cancel post error:', error)
+    return reply.code(500).send({ error: 'Failed to cancel post' })
   }
 }

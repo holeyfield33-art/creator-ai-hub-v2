@@ -1,8 +1,6 @@
 import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
-import { PrismaClient } from '@prisma/client';
-import { verifySupabaseToken } from '../lib/supabase';
-
-const prisma = new PrismaClient();
+import prisma from '../lib/prisma';
+import { ensureDbUser } from '../lib/auth';
 
 interface DashboardQuery {
   days?: string;
@@ -20,28 +18,10 @@ interface CampaignAnalyticsQuery {
 export async function analyticsRoutes(fastify: FastifyInstance) {
   // GET /api/analytics/dashboard - Overview metrics for user
   fastify.get('/api/analytics/dashboard', async (request: FastifyRequest<{ Querystring: DashboardQuery }>, reply: FastifyReply) => {
-    const authHeader = request.headers.authorization;
-    if (!authHeader?.startsWith('Bearer ')) {
+    const user = await ensureDbUser(request);
+    if (!user) {
       return reply.status(401).send({ error: 'Unauthorized' });
     }
-
-    const token = authHeader.substring(7);
-    const supabaseUser = await verifySupabaseToken(token);
-    if (!supabaseUser) {
-      return reply.status(401).send({ error: 'Invalid token' });
-    }
-
-    // Get or create user
-    const user = await prisma.users.upsert({
-      where: { id: supabaseUser.id },
-      update: {},
-      create: {
-        id: supabaseUser.id,
-        email: supabaseUser.email || '',
-        name: supabaseUser.user_metadata?.name,
-        password: '',
-      },
-    });
 
     // Parse query parameters
     const { days = '30', platform } = request.query as { days?: string; platform?: string };
@@ -53,7 +33,7 @@ export async function analyticsRoutes(fastify: FastifyInstance) {
     const platformFilter = platform ? { platform } : {};
 
     // Get scheduled posts with metrics
-    const posts = await prisma.scheduled_posts.findMany({
+    const posts = await prisma.scheduledPost.findMany({
       where: {
         userId: user.id,
         status: 'posted',
@@ -61,7 +41,7 @@ export async function analyticsRoutes(fastify: FastifyInstance) {
         ...platformFilter,
       },
       include: {
-        post_metrics: true,
+        metrics: true,
       },
     });
 
@@ -74,7 +54,7 @@ export async function analyticsRoutes(fastify: FastifyInstance) {
     let totalComments = 0;
 
     posts.forEach((post) => {
-      post.post_metrics.forEach((metric) => {
+      post.metrics.forEach((metric) => {
         totalImpressions += metric.impressions;
         totalEngagements += metric.engagements;
         totalLikes += metric.likes;
@@ -105,7 +85,7 @@ export async function analyticsRoutes(fastify: FastifyInstance) {
         };
       }
       platformBreakdown[post.platform].posts += 1;
-      post.post_metrics.forEach((metric) => {
+      post.metrics.forEach((metric) => {
         platformBreakdown[post.platform].impressions += metric.impressions;
         platformBreakdown[post.platform].engagements += metric.engagements;
       });
@@ -119,7 +99,7 @@ export async function analyticsRoutes(fastify: FastifyInstance) {
     }
     const dailyMetrics: Record<string, DailyMetrics> = {};
     posts.forEach((post) => {
-      post.post_metrics.forEach((metric) => {
+      post.metrics.forEach((metric) => {
         const date = post.postedAt?.toISOString().split('T')[0] || '';
         if (!dailyMetrics[date]) {
           dailyMetrics[date] = {
@@ -138,17 +118,17 @@ export async function analyticsRoutes(fastify: FastifyInstance) {
     );
 
     // Get top campaigns
-    const campaigns = await prisma.campaigns.findMany({
+    const campaigns = await prisma.campaign.findMany({
       where: { userId: user.id },
       include: {
-        generated_assets: {
+        generatedAssets: {
           include: {
-            scheduled_posts: {
+            scheduledPosts: {
               where: {
                 status: 'posted',
                 postedAt: { gte: startDate },
               },
-              include: { post_metrics: true },
+              include: { metrics: true },
             },
           },
         },
@@ -160,10 +140,10 @@ export async function analyticsRoutes(fastify: FastifyInstance) {
       let impressions = 0;
       let engagements = 0;
 
-      campaign.generated_assets.forEach((asset) => {
-        asset.scheduled_posts.forEach((post) => {
+      campaign.generatedAssets.forEach((asset) => {
+        asset.scheduledPosts.forEach((post) => {
           posts += 1;
-          post.post_metrics.forEach((metric) => {
+          post.metrics.forEach((metric) => {
             impressions += metric.impressions;
             engagements += metric.engagements;
           });
@@ -200,32 +180,15 @@ export async function analyticsRoutes(fastify: FastifyInstance) {
   fastify.get<{ Params: CampaignAnalyticsParams; Querystring: CampaignAnalyticsQuery }>(
     '/api/analytics/campaigns/:id/metrics',
     async (request: FastifyRequest<{ Params: CampaignAnalyticsParams }>, reply: FastifyReply) => {
-      const authHeader = request.headers.authorization;
-      if (!authHeader?.startsWith('Bearer ')) {
+      const user = await ensureDbUser(request);
+      if (!user) {
         return reply.status(401).send({ error: 'Unauthorized' });
       }
-
-      const token = authHeader.substring(7);
-      const supabaseUser = await verifySupabaseToken(token);
-      if (!supabaseUser) {
-        return reply.status(401).send({ error: 'Invalid token' });
-      }
-
-      const user = await prisma.users.upsert({
-        where: { id: supabaseUser.id },
-        update: {},
-        create: {
-          id: supabaseUser.id,
-          email: supabaseUser.email || '',
-          name: supabaseUser.user_metadata?.name,
-          password: '',
-        },
-      });
 
       const { id: campaignId } = request.params;
 
       // Verify campaign ownership
-      const campaign = await prisma.campaigns.findFirst({
+      const campaign = await prisma.campaign.findFirst({
         where: {
           id: campaignId,
           userId: user.id,
@@ -237,13 +200,13 @@ export async function analyticsRoutes(fastify: FastifyInstance) {
       }
 
       // Get posts with metrics
-      const assets = await prisma.generated_assets.findMany({
+      const assets = await prisma.generatedAsset.findMany({
         where: { campaignId },
         include: {
-          scheduled_posts: {
+          scheduledPosts: {
             where: { status: 'posted' },
             include: {
-              post_metrics: {
+              metrics: {
                 orderBy: { fetchedAt: 'desc' },
                 take: 1, // Get most recent metrics
               },
@@ -253,13 +216,13 @@ export async function analyticsRoutes(fastify: FastifyInstance) {
       });
 
       const posts = assets.flatMap((asset) =>
-        asset.scheduled_posts.map((post) => ({
+        asset.scheduledPosts.map((post) => ({
           id: post.id,
           platform: post.platform,
           content: post.content.substring(0, 100) + (post.content.length > 100 ? '...' : ''),
           postedAt: post.postedAt,
           platformPostId: post.platformPostId,
-          metrics: post.post_metrics[0] || null,
+          metrics: post.metrics[0] || null,
         }))
       );
 
@@ -305,40 +268,23 @@ export async function analyticsRoutes(fastify: FastifyInstance) {
 
   // POST /api/analytics/refresh - Trigger metrics collection
   fastify.post('/api/analytics/refresh', async (request: FastifyRequest, reply: FastifyReply) => {
-    const authHeader = request.headers.authorization;
-    if (!authHeader?.startsWith('Bearer ')) {
+    const user = await ensureDbUser(request);
+    if (!user) {
       return reply.status(401).send({ error: 'Unauthorized' });
     }
-
-    const token = authHeader.substring(7);
-    const supabaseUser = await verifySupabaseToken(token);
-    if (!supabaseUser) {
-      return reply.status(401).send({ error: 'Invalid token' });
-    }
-
-    const user = await prisma.users.upsert({
-      where: { id: supabaseUser.id },
-      update: {},
-      create: {
-        id: supabaseUser.id,
-        email: supabaseUser.email || '',
-        name: supabaseUser.user_metadata?.name,
-        password: '',
-      },
-    });
 
     // Get posted posts without recent metrics (older than 1 hour)
     const oneHourAgo = new Date();
     oneHourAgo.setHours(oneHourAgo.getHours() - 1);
 
-    const posts = await prisma.scheduled_posts.findMany({
+    const posts = await prisma.scheduledPost.findMany({
       where: {
         userId: user.id,
         status: 'posted',
         platformPostId: { not: null },
       },
       include: {
-        post_metrics: {
+        metrics: {
           orderBy: { fetchedAt: 'desc' },
           take: 1,
         },
@@ -346,15 +292,15 @@ export async function analyticsRoutes(fastify: FastifyInstance) {
     });
 
     const postsNeedingMetrics = posts.filter((post) => {
-      if (post.post_metrics.length === 0) return true;
-      const lastFetch = post.post_metrics[0].fetchedAt;
+      if (post.metrics.length === 0) return true;
+      const lastFetch = post.metrics[0].fetchedAt;
       return lastFetch < oneHourAgo;
     });
 
     // Create collect_metrics jobs
     const jobs = await Promise.all(
       postsNeedingMetrics.map((post) =>
-        prisma.jobs.create({
+        prisma.job.create({
           data: {
             type: 'collect_metrics',
             status: 'pending',

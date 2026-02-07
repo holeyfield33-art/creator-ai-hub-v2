@@ -152,7 +152,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
                   <p className="text-sm font-semibold text-amber-200">Demo mode active</p>
                   <p className="text-xs text-amber-100/80">
                     We could not reach the backend, so you are viewing placeholder data. Set
-                    <span className="mx-1 rounded bg-amber-500/20 px-1.5 py-0.5 font-mono text-[0.65rem] text-amber-100">NEXT_PUBLIC_API_BASE_URL</span>
+                    <span className="mx-1 rounded bg-amber-500/20 px-1.5 py-0.5 font-mono text-[0.65rem] text-amber-100">NEXT_PUBLIC_BACKEND_URL</span>
                     to connect your API.
                   </p>
                 </div>

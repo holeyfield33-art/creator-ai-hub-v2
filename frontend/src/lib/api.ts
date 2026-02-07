@@ -120,7 +120,7 @@ export async function request<T = unknown>(
   options: {
     method?: string
     token?: string
-    body?: unknown
+    body?: Record<string, unknown>
   } = {}
 ): Promise<T> {
   const { method = 'GET', token, body } = options
@@ -159,13 +159,13 @@ export async function request<T = unknown>(
       console.warn(`[API] ${methodUpper} ${url} failed; returning demo campaign until the API is available.`)
       markDemoModeActive(path)
       const now = new Date().toISOString()
-      const bodyData = body as Record<string, unknown> | undefined
+      const campaignBody = body as Record<string, unknown> | undefined
       return {
         id: `demo-campaign-${Date.now()}`,
-        name: (bodyData?.name as string) || 'Demo Campaign',
-        description: (bodyData?.description as string) || 'This is placeholder data while the API is offline.',
+        name: (campaignBody?.name as string) || 'Demo Campaign',
+        description: (campaignBody?.description as string) || 'This is placeholder data while the API is offline.',
         status: 'draft',
-        budget: (bodyData?.budget as number) || null,
+        budget: (campaignBody?.budget as number) || null,
         userId: 'demo-user',
         createdAt: now,
         updatedAt: now,

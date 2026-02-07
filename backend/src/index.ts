@@ -23,6 +23,7 @@ import {
   schedulePostHandler,
   listScheduledPostsHandler,
   cancelScheduledPostHandler,
+  startPkceCleanupScheduler,
 } from './routes/social'
 import { analyticsRoutes } from './routes/analytics'
 import { errorHandler } from './lib/error-handler'
@@ -45,9 +46,8 @@ fastify.setErrorHandler(errorHandler)
 
 // Register CORS with Authorization header support
 // Allow frontend origin from env or default to localhost
-const allowedOrigins = [
+const allowedOrigins: (string | RegExp)[] = [
   'http://localhost:3000',
-  'https://glowing-dollop-5gp9pvwjpprpfp7q9-3000.app.github.dev',
   /\.app\.github\.dev$/,
 ]
 
@@ -98,6 +98,9 @@ fastify.delete('/api/schedule/:postId', cancelScheduledPostHandler)
 
 // Analytics endpoints
 fastify.register(analyticsRoutes)
+
+// Start PKCE cleanup scheduler (cleans expired OAuth entries every 60s)
+startPkceCleanupScheduler()
 
 // Start server
 const start = async () => {
