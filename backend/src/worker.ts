@@ -1,10 +1,8 @@
-import { PrismaClient } from '@prisma/client'
 import { createAIProvider, chunkText } from './lib/ai-provider'
 import { buildSummarizePrompt } from './prompts/summarize'
 import { buildGenerateAssetPrompt } from './prompts/generate-assets'
 import { fetchMetricsFromPlatform, calculateEngagementRate } from './lib/social-metrics'
-
-const prisma = new PrismaClient()
+import prisma from './lib/prisma'
 const aiProvider = createAIProvider()
 
 const POLL_INTERVAL_MS = 5000 // Poll every 5 seconds
@@ -176,12 +174,6 @@ const jobProcessors: JobProcessor = {
     
     // Calculate engagement rate
     const engagementRate = calculateEngagementRate(metricsData)
-    
-    // Create or update post metric
-    const existingMetric = await prisma.postMetric.findFirst({
-      where: { scheduledPostId },
-      orderBy: { fetchedAt: 'desc' },
-    })
     
     // Always create a new metric entry (for historical tracking)
     const metric = await prisma.postMetric.create({

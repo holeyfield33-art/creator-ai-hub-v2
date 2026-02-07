@@ -1,33 +1,7 @@
 import { FastifyRequest, FastifyReply } from 'fastify'
-import { createClient } from '@supabase/supabase-js'
-import { PrismaClient } from '@prisma/client'
 import { SUPPORTED_CHANNELS } from '../prompts/generate-assets'
-
-const prisma = new PrismaClient()
-
-const supabase = createClient(
-  process.env.SUPABASE_URL || '',
-  process.env.SUPABASE_SERVICE_ROLE_KEY || ''
-)
-
-// Auth middleware helper
-async function getUserFromToken(request: FastifyRequest): Promise<string | null> {
-  const authHeader = request.headers.authorization
-  if (!authHeader?.startsWith('Bearer ')) {
-    return null
-  }
-
-  const token = authHeader.substring(7)
-  try {
-    const { data, error } = await supabase.auth.getUser(token)
-    if (error || !data.user) {
-      return null
-    }
-    return data.user.id
-  } catch (err) {
-    return null
-  }
-}
+import prisma from '../lib/prisma'
+import { requireAuth } from '../lib/auth'
 
 // POST /api/campaigns - Create new campaign
 export async function createCampaignHandler(
@@ -36,15 +10,17 @@ export async function createCampaignHandler(
   }>,
   reply: FastifyReply
 ) {
-  const userId = await getUserFromToken(request)
-  if (!userId) {
-    return reply.status(401).send({ error: 'Unauthorized' })
-  }
+  const userId = await requireAuth(request, reply)
+  if (!userId) return
 
   const { name, description, budget } = request.body
 
-  if (!name || name.trim().length === 0) {
+  if (!name || typeof name !== 'string' || name.trim().length === 0) {
     return reply.status(400).send({ error: 'Campaign name is required' })
+  }
+
+  if (budget !== undefined && budget !== null && (typeof budget !== 'number' || budget < 0)) {
+    return reply.status(400).send({ error: 'Budget must be a non-negative number' })
   }
 
   try {
@@ -52,7 +28,7 @@ export async function createCampaignHandler(
       data: {
         name: name.trim(),
         description: description?.trim(),
-        budget,
+        budget: budget ?? null,
         userId,
         status: 'draft',
       },
@@ -70,10 +46,8 @@ export async function listCampaignsHandler(
   request: FastifyRequest,
   reply: FastifyReply
 ) {
-  const userId = await getUserFromToken(request)
-  if (!userId) {
-    return reply.status(401).send({ error: 'Unauthorized' })
-  }
+  const userId = await requireAuth(request, reply)
+  if (!userId) return
 
   try {
     const campaigns = await prisma.campaign.findMany({
@@ -103,10 +77,8 @@ export async function getCampaignHandler(
   request: FastifyRequest<{ Params: { id: string } }>,
   reply: FastifyReply
 ) {
-  const userId = await getUserFromToken(request)
-  if (!userId) {
-    return reply.status(401).send({ error: 'Unauthorized' })
-  }
+  const userId = await requireAuth(request, reply)
+  if (!userId) return
 
   const { id } = request.params
 
@@ -150,10 +122,8 @@ export async function uploadCampaignSourceHandler(
   }>,
   reply: FastifyReply
 ) {
-  const userId = await getUserFromToken(request)
-  if (!userId) {
-    return reply.status(401).send({ error: 'Unauthorized' })
-  }
+  const userId = await requireAuth(request, reply)
+  if (!userId) return
 
   const { id } = request.params
   const { sourceType, text, fileName, fileSize } = request.body
@@ -249,10 +219,8 @@ export async function registerCampaignSourceHandler(
   }>,
   reply: FastifyReply
 ) {
-  const userId = await getUserFromToken(request)
-  if (!userId) {
-    return reply.status(401).send({ error: 'Unauthorized' })
-  }
+  const userId = await requireAuth(request, reply)
+  if (!userId) return
 
   const { id } = request.params
   const { sourceType, sourceUrl, fileName, mimeType, size } = request.body
@@ -336,10 +304,8 @@ export async function generateAssetsHandler(
   }>,
   reply: FastifyReply
 ) {
-  const userId = await getUserFromToken(request)
-  if (!userId) {
-    return reply.status(401).send({ error: 'Unauthorized' })
-  }
+  const userId = await requireAuth(request, reply)
+  if (!userId) return
 
   const { id } = request.params
   const { channels } = request.body
@@ -418,10 +384,8 @@ export async function deleteCampaignHandler(
   request: FastifyRequest<{ Params: { id: string } }>,
   reply: FastifyReply
 ) {
-  const userId = await getUserFromToken(request)
-  if (!userId) {
-    return reply.status(401).send({ error: 'Unauthorized' })
-  }
+  const userId = await requireAuth(request, reply)
+  if (!userId) return
 
   const { id } = request.params
 
@@ -452,10 +416,8 @@ export async function getJobStatusHandler(
   request: FastifyRequest<{ Params: { id: string } }>,
   reply: FastifyReply
 ) {
-  const userId = await getUserFromToken(request)
-  if (!userId) {
-    return reply.status(401).send({ error: 'Unauthorized' })
-  }
+  const userId = await requireAuth(request, reply)
+  if (!userId) return
 
   const { id } = request.params
 
@@ -468,6 +430,7 @@ export async function getJobStatusHandler(
         status: true,
         result: true,
         error: true,
+        payload: true,
         createdAt: true,
         completedAt: true,
       },
@@ -477,7 +440,22 @@ export async function getJobStatusHandler(
       return reply.status(404).send({ error: 'Job not found' })
     }
 
-    return reply.send(job)
+    // Verify the job belongs to the requesting user's campaign
+    const payload = job.payload as Record<string, unknown> | null
+    const campaignId = payload?.campaignId as string | undefined
+    if (campaignId) {
+      const campaign = await prisma.campaign.findFirst({
+        where: { id: campaignId, userId },
+        select: { id: true },
+      })
+      if (!campaign) {
+        return reply.status(404).send({ error: 'Job not found' })
+      }
+    }
+
+    // Don't expose raw payload to the client
+    const { payload: _payload, ...jobResponse } = job
+    return reply.send(jobResponse)
   } catch (error) {
     request.log.error(error)
     return reply.status(500).send({ error: 'Failed to get job status' })
@@ -492,10 +470,8 @@ export async function updateAssetHandler(
   }>,
   reply: FastifyReply
 ) {
-  const userId = await getUserFromToken(request)
-  if (!userId) {
-    return reply.status(401).send({ error: 'Unauthorized' })
-  }
+  const userId = await requireAuth(request, reply)
+  if (!userId) return
 
   const { id } = request.params
   const { content } = request.body

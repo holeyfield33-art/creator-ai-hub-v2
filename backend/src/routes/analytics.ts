@@ -1,8 +1,6 @@
 import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
-import { PrismaClient } from '@prisma/client';
-import { verifySupabaseToken } from '../lib/supabase';
-
-const prisma = new PrismaClient();
+import prisma from '../lib/prisma';
+import { ensureDbUser } from '../lib/auth';
 
 interface DashboardQuery {
   days?: string;
@@ -20,28 +18,10 @@ interface CampaignAnalyticsQuery {
 export async function analyticsRoutes(fastify: FastifyInstance) {
   // GET /api/analytics/dashboard - Overview metrics for user
   fastify.get('/api/analytics/dashboard', async (request: FastifyRequest<{ Querystring: DashboardQuery }>, reply: FastifyReply) => {
-    const authHeader = request.headers.authorization;
-    if (!authHeader?.startsWith('Bearer ')) {
+    const user = await ensureDbUser(request);
+    if (!user) {
       return reply.status(401).send({ error: 'Unauthorized' });
     }
-
-    const token = authHeader.substring(7);
-    const supabaseUser = await verifySupabaseToken(token);
-    if (!supabaseUser) {
-      return reply.status(401).send({ error: 'Invalid token' });
-    }
-
-    // Get or create user
-    const user = await prisma.user.upsert({
-      where: { id: supabaseUser.id },
-      update: {},
-      create: {
-        id: supabaseUser.id,
-        email: supabaseUser.email || '',
-        name: supabaseUser.user_metadata?.name,
-        password: '',
-      },
-    });
 
     // Parse query parameters
     const { days = '30', platform } = request.query as { days?: string; platform?: string };
@@ -200,27 +180,10 @@ export async function analyticsRoutes(fastify: FastifyInstance) {
   fastify.get<{ Params: CampaignAnalyticsParams; Querystring: CampaignAnalyticsQuery }>(
     '/api/analytics/campaigns/:id/metrics',
     async (request: FastifyRequest<{ Params: CampaignAnalyticsParams }>, reply: FastifyReply) => {
-      const authHeader = request.headers.authorization;
-      if (!authHeader?.startsWith('Bearer ')) {
+      const user = await ensureDbUser(request);
+      if (!user) {
         return reply.status(401).send({ error: 'Unauthorized' });
       }
-
-      const token = authHeader.substring(7);
-      const supabaseUser = await verifySupabaseToken(token);
-      if (!supabaseUser) {
-        return reply.status(401).send({ error: 'Invalid token' });
-      }
-
-      const user = await prisma.user.upsert({
-        where: { id: supabaseUser.id },
-        update: {},
-        create: {
-          id: supabaseUser.id,
-          email: supabaseUser.email || '',
-          name: supabaseUser.user_metadata?.name,
-          password: '',
-        },
-      });
 
       const { id: campaignId } = request.params;
 
@@ -305,27 +268,10 @@ export async function analyticsRoutes(fastify: FastifyInstance) {
 
   // POST /api/analytics/refresh - Trigger metrics collection
   fastify.post('/api/analytics/refresh', async (request: FastifyRequest, reply: FastifyReply) => {
-    const authHeader = request.headers.authorization;
-    if (!authHeader?.startsWith('Bearer ')) {
+    const user = await ensureDbUser(request);
+    if (!user) {
       return reply.status(401).send({ error: 'Unauthorized' });
     }
-
-    const token = authHeader.substring(7);
-    const supabaseUser = await verifySupabaseToken(token);
-    if (!supabaseUser) {
-      return reply.status(401).send({ error: 'Invalid token' });
-    }
-
-    const user = await prisma.user.upsert({
-      where: { id: supabaseUser.id },
-      update: {},
-      create: {
-        id: supabaseUser.id,
-        email: supabaseUser.email || '',
-        name: supabaseUser.user_metadata?.name,
-        password: '',
-      },
-    });
 
     // Get posted posts without recent metrics (older than 1 hour)
     const oneHourAgo = new Date();

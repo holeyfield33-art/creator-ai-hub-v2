@@ -115,12 +115,12 @@ function getDemoResponse(path: string): { found: boolean; data?: unknown } {
  * - Sets Content-Type: application/json for request bodies
  * - Logs and throws descriptive errors on non-OK responses
  */
-export async function request<T = any>(
+export async function request<T = unknown>(
   path: string,
   options: {
     method?: string
     token?: string
-    body?: any
+    body?: Record<string, unknown>
   } = {}
 ): Promise<T> {
   const { method = 'GET', token, body } = options
@@ -159,12 +159,13 @@ export async function request<T = any>(
       console.warn(`[API] ${methodUpper} ${url} failed; returning demo campaign until the API is available.`)
       markDemoModeActive(path)
       const now = new Date().toISOString()
+      const campaignBody = body as Record<string, unknown> | undefined
       return {
         id: `demo-campaign-${Date.now()}`,
-        name: (body as any)?.name || 'Demo Campaign',
-        description: (body as any)?.description || 'This is placeholder data while the API is offline.',
+        name: (campaignBody?.name as string) || 'Demo Campaign',
+        description: (campaignBody?.description as string) || 'This is placeholder data while the API is offline.',
         status: 'draft',
-        budget: (body as any)?.budget || null,
+        budget: (campaignBody?.budget as number) || null,
         userId: 'demo-user',
         createdAt: now,
         updatedAt: now,
