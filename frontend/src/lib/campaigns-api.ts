@@ -29,6 +29,39 @@ export interface CampaignSource {
   updatedAt: string
 }
 
+export interface CampaignAnalysis {
+  id: string
+  campaignId: string
+  analysisType: string
+  results: {
+    summary: string
+    key_points: string[]
+    hooks: string[]
+  }
+  summary: string | null
+  score: number | null
+  createdAt: string
+  updatedAt: string
+}
+
+export interface GeneratedAsset {
+  id: string
+  campaignId: string
+  assetType: string
+  content: string | null
+  url: string | null
+  metadata: any
+  status: string
+  createdAt: string
+  updatedAt: string
+}
+
+export interface CampaignDetail extends Campaign {
+  sources: CampaignSource[]
+  analyses: CampaignAnalysis[]
+  generatedAssets: GeneratedAsset[]
+}
+
 export async function createCampaign(
   token: string,
   data: { name: string; description?: string; budget?: number }
@@ -64,7 +97,7 @@ export async function listCampaigns(token: string): Promise<Campaign[]> {
   return response.json()
 }
 
-export async function getCampaign(token: string, id: string): Promise<Campaign> {
+export async function getCampaign(token: string, id: string): Promise<CampaignDetail> {
   const response = await fetch(`${API_BASE_URL}/api/campaigns/${id}`, {
     headers: {
       Authorization: `Bearer ${token}`,
@@ -73,6 +106,50 @@ export async function getCampaign(token: string, id: string): Promise<Campaign> 
 
   if (!response.ok) {
     throw new Error('Campaign not found')
+  }
+
+  return response.json()
+}
+
+export async function generateAssets(
+  token: string,
+  campaignId: string,
+  channels: string[]
+): Promise<{ message: string; jobs: any[] }> {
+  const response = await fetch(`${API_BASE_URL}/api/campaigns/${campaignId}/generate-assets`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${token}`,
+    },
+    body: JSON.stringify({ channels }),
+  })
+
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({ error: 'Failed to generate assets' }))
+    throw new Error(error.error || 'Failed to generate assets')
+  }
+
+  return response.json()
+}
+
+export async function updateAsset(
+  token: string,
+  assetId: string,
+  content: string
+): Promise<GeneratedAsset> {
+  const response = await fetch(`${API_BASE_URL}/api/assets/${assetId}`, {
+    method: 'PUT',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${token}`,
+    },
+    body: JSON.stringify({ content }),
+  })
+
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({ error: 'Failed to update asset' }))
+    throw new Error(error.error || 'Failed to update asset')
   }
 
   return response.json()
