@@ -8,6 +8,7 @@ module.exports = {
     '!src/**/*.d.ts',
     '!src/index.ts',
     '!src/worker.ts',
+    '!src/create-test-job.ts',
   ],
   moduleNameMapper: {
     '^@/(.*)$': '<rootDir>/src/$1',

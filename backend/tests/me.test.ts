@@ -105,4 +105,28 @@ describe('/api/me endpoint', () => {
       error: 'Invalid token',
     });
   });
+
+  it('should return 500 when ensureDbUser throws', async () => {
+    // Arrange
+    const request = createMockRequest({
+      headers: { authorization: 'Bearer valid-token' },
+    });
+    const reply = createMockReply();
+
+    mockSupabaseClient.auth.getUser.mockResolvedValue({
+      data: { user: testUser },
+      error: null,
+    });
+
+    mockPrismaClient.user.upsert.mockRejectedValue(new Error('Database crash'));
+
+    // Act
+    await getMeHandler(request as any, reply as any);
+
+    // Assert
+    expect(reply.code).toHaveBeenCalledWith(500);
+    expect(reply.send).toHaveBeenCalledWith({
+      error: 'Internal server error',
+    });
+  });
 });
