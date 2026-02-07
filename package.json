@@ -9,6 +9,7 @@
   ],
   "scripts": {
     "dev": "concurrently \"npm run dev --workspace=backend\" \"npm run dev --workspace=frontend\"",
+    "backend:worker": "npm run worker --workspace=backend",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
   "keywords": [],

@@ -1,8 +1,10 @@
-import prisma from './lib/prisma'
+import { PrismaClient } from '@prisma/client'
+
+const prisma = new PrismaClient()
 
 async function createTestJob() {
   try {
-    const job = await prisma.jobs.create({
+    const job = await prisma.job.create({
       data: {
         type: 'analysis',
         status: 'pending',
