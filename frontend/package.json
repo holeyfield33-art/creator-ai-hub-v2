@@ -2,41 +2,9 @@
   "name": "@creator-ai-hub/frontend",
   "version": "1.0.0",
   "description": "Frontend for Creator AI Hub",
+  "main": "src/index.tsx",
   "scripts": {
-    "dev": "next dev",
-    "build": "next build",
-    "start": "next start",
-    "lint": "eslint . --ext .ts,.tsx,.js,.jsx",
-    "typecheck": "tsc --noEmit"
-  },
-  "dependencies": {
-    "@supabase/supabase-js": "^2.39.0",
-    "@uploadthing/react": "^7.3.3",
-    "date-fns": "^4.1.0",
-    "next": "^16.1.5",
-    "react": "^19.2.4",
-    "react-dom": "^19.2.4",
-    "react-dropzone": "^14.3.8",
-    "recharts": "^3.7.0",
-    "uploadthing": "^7.7.4"
-  },
-  "devDependencies": {
-    "@eslint/css": "^0.14.1",
-    "@eslint/js": "^9.39.2",
-    "@eslint/json": "^0.14.0",
-    "@eslint/markdown": "^7.5.1",
-    "@types/node": "^20.0.0",
-    "@types/react": "^18.3.0",
-    "@types/react-dom": "^18.3.0",
-    "autoprefixer": "^10.4.23",
-    "eslint": "^9.39.2",
-    "eslint-plugin-react": "^7.37.5",
-    "globals": "^17.2.0",
-    "jiti": "^2.6.1",
-    "postcss": "^8.5.6",
-    "tailwindcss": "^3.4.19",
-    "typescript": "^5.9.3",
-    "typescript-eslint": "^8.54.0"
+    "dev": "echo 'Frontend dev server placeholder - to be implemented in Phase 3'"
   },
   "keywords": [],
   "author": "",

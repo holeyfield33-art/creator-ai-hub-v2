@@ -53,4 +53,4 @@ This will start:
 
 This repo uses AI-assisted development workflows:
 1. Copy `ai/` into any repo
-2. In Copilot Chat, start with:"read ai/rules.md and follow it. Then follow ai/workflows.md."
+2. In Copilot Chat, start with: "Read ai/rules.md and follow it. Then follow ai/workflows.md."
