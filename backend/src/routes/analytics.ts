@@ -61,7 +61,7 @@ export async function analyticsRoutes(fastify: FastifyInstance) {
         ...platformFilter,
       },
       include: {
-        metrics: true,
+        post_metrics: true,
       },
     });
 
@@ -74,7 +74,7 @@ export async function analyticsRoutes(fastify: FastifyInstance) {
     let totalComments = 0;
 
     posts.forEach((post) => {
-      post.metrics.forEach((metric) => {
+      post.post_metrics.forEach((metric) => {
         totalImpressions += metric.impressions;
         totalEngagements += metric.engagements;
         totalLikes += metric.likes;
@@ -105,7 +105,7 @@ export async function analyticsRoutes(fastify: FastifyInstance) {
         };
       }
       platformBreakdown[post.platform].posts += 1;
-      post.metrics.forEach((metric) => {
+      post.post_metrics.forEach((metric) => {
         platformBreakdown[post.platform].impressions += metric.impressions;
         platformBreakdown[post.platform].engagements += metric.engagements;
       });
@@ -119,7 +119,7 @@ export async function analyticsRoutes(fastify: FastifyInstance) {
     }
     const dailyMetrics: Record<string, DailyMetrics> = {};
     posts.forEach((post) => {
-      post.metrics.forEach((metric) => {
+      post.post_metrics.forEach((metric) => {
         const date = post.postedAt?.toISOString().split('T')[0] || '';
         if (!dailyMetrics[date]) {
           dailyMetrics[date] = {
@@ -141,9 +141,9 @@ export async function analyticsRoutes(fastify: FastifyInstance) {
     const campaigns = await prisma.campaigns.findMany({
       where: { userId: user.id },
       include: {
-        generatedAssets: {
+        generated_assets: {
           include: {
-            scheduledPosts: {
+            scheduled_posts: {
               where: {
                 status: 'posted',
                 postedAt: { gte: startDate },
@@ -163,7 +163,7 @@ export async function analyticsRoutes(fastify: FastifyInstance) {
       campaign.generated_assets.forEach((asset) => {
         asset.scheduled_posts.forEach((post) => {
           posts += 1;
-          post.metrics.forEach((metric) => {
+          post.post_metrics.forEach((metric) => {
             impressions += metric.impressions;
             engagements += metric.engagements;
           });
@@ -240,10 +240,10 @@ export async function analyticsRoutes(fastify: FastifyInstance) {
       const assets = await prisma.generated_assets.findMany({
         where: { campaignId },
         include: {
-          scheduledPosts: {
+          scheduled_posts: {
             where: { status: 'posted' },
             include: {
-              metrics: {
+              post_metrics: {
                 orderBy: { fetchedAt: 'desc' },
                 take: 1, // Get most recent metrics
               },
@@ -259,7 +259,7 @@ export async function analyticsRoutes(fastify: FastifyInstance) {
           content: post.content.substring(0, 100) + (post.content.length > 100 ? '...' : ''),
           postedAt: post.postedAt,
           platformPostId: post.platformPostId,
-          metrics: post.metrics[0] || null,
+          metrics: post.post_metrics[0] || null,
         }))
       );
 
@@ -338,7 +338,7 @@ export async function analyticsRoutes(fastify: FastifyInstance) {
         platformPostId: { not: null },
       },
       include: {
-        metrics: {
+        post_metrics: {
           orderBy: { fetchedAt: 'desc' },
           take: 1,
         },
@@ -346,8 +346,8 @@ export async function analyticsRoutes(fastify: FastifyInstance) {
     });
 
     const postsNeedingMetrics = posts.filter((post) => {
-      if (post.metrics.length === 0) return true;
-      const lastFetch = post.metrics[0].fetchedAt;
+      if (post.post_metrics.length === 0) return true;
+      const lastFetch = post.post_metrics[0].fetchedAt;
       return lastFetch < oneHourAgo;
     });
 

@@ -46,7 +46,7 @@ export interface ValidationResult {
 export async function checkActiveJob(userId: string): Promise<ValidationResult> {
   const activeSources = await prisma.campaign_sources.findMany({
     where: {
-      campaign: { userId },
+      campaigns: { userId },
       status: { in: ['transcribing', 'generating'] },
     },
     take: 1,

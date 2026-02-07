@@ -361,7 +361,7 @@ async function processScheduledPosts() {
         },
       },
       include: {
-        socialConnection: true,
+        social_connections: true,
       },
       take: 10, // Process 10 at a time
     })

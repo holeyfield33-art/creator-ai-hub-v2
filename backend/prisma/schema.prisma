@@ -9,7 +9,7 @@ datasource db {
 }
 
 model campaign_analysis {
-  id           String    @id
+  id           String    @id @default(uuid())
   campaignId   String
   analysisType String
   results      Json
@@ -24,7 +24,7 @@ model campaign_analysis {
 }
 
 model campaign_metrics {
-  id                String    @id
+  id                String    @id @default(uuid())
   campaignId        String
   totalPosts        Int       @default(0)
   totalImpressions  Int       @default(0)
@@ -41,7 +41,7 @@ model campaign_metrics {
 }
 
 model campaign_sources {
-  id              String    @id
+  id              String    @id @default(uuid())
   campaignId      String
   sourceType      String
   sourceUrl       String?
@@ -61,7 +61,7 @@ model campaign_sources {
 }
 
 model campaigns {
-  id                String              @id
+  id                String              @id @default(uuid())
   name              String
   description       String?
   status            String              @default("draft")
@@ -80,7 +80,7 @@ model campaigns {
 }
 
 model generated_assets {
-  id              String            @id
+  id              String            @id @default(uuid())
   campaignId      String
   assetType       String
   content         String?
@@ -98,7 +98,7 @@ model generated_assets {
 }
 
 model jobs {
-  id          String    @id
+  id          String    @id @default(uuid())
   type        String
   status      String    @default("pending")
   payload     Json
@@ -117,7 +117,7 @@ model jobs {
 }
 
 model post_metrics {
-  id              String          @id
+  id              String          @id @default(uuid())
   scheduledPostId String
   impressions     Int             @default(0)
   engagements     Int             @default(0)
@@ -139,7 +139,7 @@ model post_metrics {
 }
 
 model scheduled_posts {
-  id                 String             @id
+  id                 String             @id @default(uuid())
   userId             String
   assetId            String
   socialConnectionId String
@@ -167,7 +167,7 @@ model scheduled_posts {
 }
 
 model social_connections {
-  id              String            @id
+  id              String            @id @default(uuid())
   userId          String
   platform        String
   platformUserId  String
@@ -187,7 +187,7 @@ model social_connections {
 }
 
 model usage_quotas {
-  id                  String   @id
+  id                  String   @id @default(uuid())
   userId              String
   quotaDate           DateTime @default(now()) @db.Date
   transcriptionsUsed  Int      @default(0)
@@ -203,7 +203,7 @@ model usage_quotas {
 }
 
 model users {
-  id                 String               @id
+  id                 String               @id @default(uuid())
   email              String               @unique
   name               String?
   password           String

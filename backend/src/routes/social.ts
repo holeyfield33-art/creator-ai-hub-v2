@@ -328,7 +328,7 @@ export async function schedulePostHandler(
     const asset = await prisma.generated_assets.findFirst({
       where: {
         id: assetId,
-        campaign: {
+        campaigns: {
           userId: user.id,
         },
       },
@@ -382,14 +382,14 @@ export async function listScheduledPostsHandler(
     const posts = await prisma.scheduled_posts.findMany({
       where: { userId: user.id },
       include: {
-        asset: {
+        generated_assets: {
           select: {
             id: true,
             content: true,
             assetType: true,
           },
         },
-        socialConnection: {
+        social_connections: {
           select: {
             platform: true,
             username: true,

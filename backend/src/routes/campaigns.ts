@@ -88,12 +88,12 @@ export async function listCampaignsHandler(
       where: { userId },
       orderBy: { createdAt: 'desc' },
       include: {
-        sources: true,
+        campaign_sources: true,
         _count: {
           select: {
-            sources: true,
-            analyses: true,
-            generatedAssets: true,
+            campaign_sources: true,
+            campaign_analysis: true,
+            generated_assets: true,
           },
         },
       },
@@ -122,13 +122,13 @@ export async function getCampaignHandler(
     const campaign = await prisma.campaigns.findFirst({
       where: { id, userId },
       include: {
-        sources: {
+        campaign_sources: {
           orderBy: { createdAt: 'desc' },
         },
-        analyses: {
+        campaign_analysis: {
           orderBy: { createdAt: 'desc' },
         },
-        generatedAssets: {
+        generated_assets: {
           orderBy: { createdAt: 'desc' },
         },
       },
@@ -321,7 +321,7 @@ export async function uploadSourceHandler(
     // Start auto processing (async, don't await)
     if (SAFETY_CONFIG.AUTO_PROCESSING) {
       processSource(source.id, id, userId).catch(error => {
-        request.log.error('[Upload] Auto-processing failed:', error)
+        request.log.error({ error }, '[Upload] Auto-processing failed')
       })
     }
 
@@ -495,7 +495,7 @@ export async function generateAssetsHandler(
     const campaign = await prisma.campaigns.findFirst({
       where: { id, userId },
       include: {
-        analyses: {
+        campaign_analysis: {
           where: { analysisType: 'content_summary' },
           orderBy: { createdAt: 'desc' },
           take: 1,
@@ -641,13 +641,13 @@ export async function updateAssetHandler(
     const asset = await prisma.generated_assets.findFirst({
       where: { id },
       include: {
-        campaign: {
+        campaigns: {
           select: { userId: true },
         },
       },
     })
 
-    if (!asset || asset.campaign.userId !== userId) {
+    if (!asset || asset.campaigns.userId !== userId) {
       return reply.status(404).send({ error: 'Asset not found' })
     }
 
