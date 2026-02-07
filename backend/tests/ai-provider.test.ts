@@ -124,6 +124,85 @@ describe('MockAIProvider', () => {
   });
 });
 
+// ─── OpenAIProvider.complete() ───────────────────────────────────────────────
+
+describe('OpenAIProvider', () => {
+  const originalFetch = global.fetch;
+
+  afterEach(() => {
+    global.fetch = originalFetch;
+  });
+
+  it('should call fetch with correct request shape and return parsed response', async () => {
+    const mockFetch = jest.fn().mockResolvedValue({
+      ok: true,
+      json: () =>
+        Promise.resolve({
+          choices: [{ message: { content: 'AI generated text' } }],
+          usage: { prompt_tokens: 10, completion_tokens: 20, total_tokens: 30 },
+        }),
+    }) as jest.Mock;
+    global.fetch = mockFetch;
+
+    const provider = new OpenAIProvider('sk-test-key', 'gpt-4o', 'https://api.example.com/v1');
+    const result = await provider.complete('Hello', { maxTokens: 500, temperature: 0.5 });
+
+    expect(mockFetch).toHaveBeenCalledWith('https://api.example.com/v1/chat/completions', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: 'Bearer sk-test-key',
+      },
+      body: JSON.stringify({
+        model: 'gpt-4o',
+        messages: [{ role: 'user', content: 'Hello' }],
+        max_tokens: 500,
+        temperature: 0.5,
+      }),
+    });
+
+    expect(result).toEqual({
+      content: 'AI generated text',
+      usage: { promptTokens: 10, completionTokens: 20, totalTokens: 30 },
+    });
+  });
+
+  it('should use defaults for maxTokens and temperature when options omitted', async () => {
+    const mockFetch = jest.fn().mockResolvedValue({
+      ok: true,
+      json: () =>
+        Promise.resolve({
+          choices: [{ message: { content: 'Response' } }],
+          usage: { prompt_tokens: 5, completion_tokens: 10, total_tokens: 15 },
+        }),
+    }) as jest.Mock;
+    global.fetch = mockFetch;
+
+    const provider = new OpenAIProvider('sk-key');
+    await provider.complete('Prompt');
+
+    const body = JSON.parse(mockFetch.mock.calls[0][1].body);
+    expect(body.max_tokens).toBe(1000);
+    expect(body.temperature).toBe(0.7);
+    expect(body.model).toBe('gpt-3.5-turbo');
+  });
+
+  it('should throw on non-ok API response', async () => {
+    const mockFetch = jest.fn().mockResolvedValue({
+      ok: false,
+      status: 429,
+      text: () => Promise.resolve('Rate limit exceeded'),
+    }) as jest.Mock;
+    global.fetch = mockFetch;
+
+    const provider = new OpenAIProvider('sk-key');
+
+    await expect(provider.complete('Test')).rejects.toThrow(
+      'OpenAI API error: 429 - Rate limit exceeded'
+    );
+  });
+});
+
 // ─── buildGenerateAssetPrompt ───────────────────────────────────────────────
 
 describe('buildGenerateAssetPrompt', () => {

@@ -182,6 +182,39 @@ describe('Generate assets endpoint', () => {
     });
   });
 
+  it('should return 500 on database error during job creation', async () => {
+    // Covers campaigns.ts lines 376-378 (catch branch in generateAssetsHandler)
+    const request = createMockRequest({
+      headers: { authorization: 'Bearer valid-token' },
+      params: { id: testCampaign.id },
+      body: { channels: ['twitter'] },
+    });
+    const reply = createMockReply();
+
+    mockSupabaseClient.auth.getUser.mockResolvedValue({
+      data: { user: testUser },
+      error: null,
+    });
+
+    const campaignWithAnalysis = {
+      ...testCampaign,
+      analyses: [
+        {
+          id: 'analysis-1',
+          analysisType: 'content_summary',
+          results: { summary: 'Sum', key_points: [], hooks: [] },
+        },
+      ],
+    };
+    mockPrismaClient.campaign.findFirst.mockResolvedValue(campaignWithAnalysis);
+    mockPrismaClient.job.create.mockRejectedValue(new Error('Job queue full'));
+
+    await generateAssetsHandler(request as any, reply as any);
+
+    expect(reply.status).toHaveBeenCalledWith(500);
+    expect(reply.send).toHaveBeenCalledWith({ error: 'Failed to generate assets' });
+  });
+
   it('should return 400 with unsupported channels', async () => {
     // Arrange
     const request = createMockRequest({

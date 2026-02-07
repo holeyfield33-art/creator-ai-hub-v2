@@ -105,4 +105,45 @@ describe('/api/me endpoint', () => {
       error: 'Invalid token',
     });
   });
+
+  it('should return 500 when ensureDbUser throws unexpectedly', async () => {
+    // Arrange - covers me.ts lines 21-23 (catch branch)
+    const request = createMockRequest({
+      headers: { authorization: 'Bearer valid-token' },
+    });
+    const reply = createMockReply();
+
+    // ensureDbUser calls supabase.auth.getUser, then prisma.user.upsert
+    // Make getUser succeed but upsert throw to trigger the catch
+    mockSupabaseClient.auth.getUser.mockResolvedValue({
+      data: { user: testUser },
+      error: null,
+    });
+    mockPrismaClient.user.upsert.mockRejectedValue(new Error('Database connection failed'));
+
+    // Act
+    await getMeHandler(request as any, reply as any);
+
+    // Assert
+    expect(reply.code).toHaveBeenCalledWith(500);
+    expect(reply.send).toHaveBeenCalledWith({ error: 'Internal server error' });
+  });
+
+  it('should return 500 when Supabase getUser throws an exception', async () => {
+    // Arrange - ensureDbUser does not have its own try/catch, so the error
+    // propagates to getMeHandler's outer catch block → 500
+    const request = createMockRequest({
+      headers: { authorization: 'Bearer crash-token' },
+    });
+    const reply = createMockReply();
+
+    mockSupabaseClient.auth.getUser.mockRejectedValue(new Error('Network error'));
+
+    // Act
+    await getMeHandler(request as any, reply as any);
+
+    // Assert
+    expect(reply.code).toHaveBeenCalledWith(500);
+    expect(reply.send).toHaveBeenCalledWith({ error: 'Internal server error' });
+  });
 });
