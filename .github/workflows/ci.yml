@@ -8,6 +8,8 @@ on:
 jobs:
   build:
     runs-on: ubuntu-latest
+    outputs:
+      artifact-id: ${{ steps.upload-artifact.outputs.artifact-id }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -17,3 +19,31 @@ jobs:
       - run: npm run typecheck --if-present
       - run: npm test --if-present
       - run: npm run lint --if-present
+
+      - name: Upload build artifacts
+        id: upload-artifact
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-output
+          path: |
+            backend/dist/
+            frontend/.next/
+          if-no-files-found: ignore
+          retention-days: 7
+
+      - name: Evaluate and set job outputs
+        id: set-outputs
+        if: always()
+        run: |
+          echo "artifact-id=${{ steps.upload-artifact.outputs.artifact-id }}" >> "$GITHUB_OUTPUT"
+          echo "Build completed with artifact ID: ${{ steps.upload-artifact.outputs.artifact-id }}"
+
+      - name: Cleaning up orphan processes
+        if: always()
+        run: |
+          # Terminate any background processes spawned during CI
+          pkill -f "node.*worker" || true
+          pkill -f "next-server" || true
+          pkill -f "tsx.*watch" || true
+          echo "Orphan process cleanup complete"

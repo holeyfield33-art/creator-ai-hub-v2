@@ -7,6 +7,8 @@ const aiProvider = createAIProvider()
 
 const POLL_INTERVAL_MS = 5000 // Poll every 5 seconds
 const MAX_RETRIES = 3
+const ORPHAN_TIMEOUT_MS = 10 * 60 * 1000 // 10 minutes - jobs running longer are considered orphaned
+const ORPHAN_CLEANUP_INTERVAL_MS = 60 * 1000 // Check for orphans every 60 seconds
 
 interface JobProcessor {
   [key: string]: (payload: any) => Promise<any>
@@ -507,12 +509,59 @@ async function postToX(post: any, connection: any) {
   return result
 }
 
+async function cleanupOrphanJobs() {
+  try {
+    const cutoff = new Date(Date.now() - ORPHAN_TIMEOUT_MS)
+
+    // Find jobs stuck in 'running' state beyond the timeout
+    const orphanedJobs = await prisma.job.findMany({
+      where: {
+        status: 'running',
+        startedAt: {
+          lt: cutoff,
+        },
+      },
+    })
+
+    if (orphanedJobs.length === 0) {
+      return
+    }
+
+    console.log(`[${new Date().toISOString()}] Found ${orphanedJobs.length} orphaned job(s)`)
+
+    for (const job of orphanedJobs) {
+      const shouldFail = job.attempts >= job.maxAttempts
+
+      await prisma.job.update({
+        where: { id: job.id },
+        data: {
+          status: shouldFail ? 'failed' : 'pending',
+          error: 'Job orphaned - worker process terminated unexpectedly',
+          completedAt: shouldFail ? new Date() : null,
+        },
+      })
+
+      if (shouldFail) {
+        console.log(`[${new Date().toISOString()}] Orphaned job ${job.id} marked as failed (max attempts reached)`)
+      } else {
+        console.log(`[${new Date().toISOString()}] Orphaned job ${job.id} reset to pending for retry (attempt ${job.attempts}/${job.maxAttempts})`)
+      }
+    }
+  } catch (error) {
+    console.error('Error cleaning up orphaned jobs:', error)
+  }
+}
+
 async function startWorker() {
   console.log('='.repeat(60))
   console.log('Job Worker Started')
   console.log(`Polling interval: ${POLL_INTERVAL_MS}ms`)
   console.log(`Max retries: ${MAX_RETRIES}`)
+  console.log(`Orphan timeout: ${ORPHAN_TIMEOUT_MS / 1000}s`)
   console.log('='.repeat(60))
+
+  // Clean up any orphaned jobs from previous worker crashes
+  await cleanupOrphanJobs()
 
   // Initial poll
   await pollJobs()
@@ -521,6 +570,11 @@ async function startWorker() {
   setInterval(async () => {
     await pollJobs()
   }, POLL_INTERVAL_MS)
+
+  // Periodically clean up orphaned jobs
+  setInterval(async () => {
+    await cleanupOrphanJobs()
+  }, ORPHAN_CLEANUP_INTERVAL_MS)
 }
 
 // Graceful shutdown
