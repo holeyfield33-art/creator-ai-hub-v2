@@ -113,6 +113,44 @@ describe('Campaign creation endpoint', () => {
     expect(mockPrismaClient.campaign.create).not.toHaveBeenCalled();
   });
 
+  it('should return 400 with negative budget', async () => {
+    // Covers campaigns.ts line 23 (budget validation branch)
+    const request = createMockRequest({
+      headers: { authorization: 'Bearer valid-token' },
+      body: { name: 'Test Campaign', budget: -100 },
+    });
+    const reply = createMockReply();
+
+    mockSupabaseClient.auth.getUser.mockResolvedValue({
+      data: { user: testUser },
+      error: null,
+    });
+
+    await createCampaignHandler(request as any, reply as any);
+
+    expect(reply.status).toHaveBeenCalledWith(400);
+    expect(reply.send).toHaveBeenCalledWith({ error: 'Budget must be a non-negative number' });
+    expect(mockPrismaClient.campaign.create).not.toHaveBeenCalled();
+  });
+
+  it('should return 400 when budget is a string', async () => {
+    const request = createMockRequest({
+      headers: { authorization: 'Bearer valid-token' },
+      body: { name: 'Test Campaign', budget: 'abc' },
+    });
+    const reply = createMockReply();
+
+    mockSupabaseClient.auth.getUser.mockResolvedValue({
+      data: { user: testUser },
+      error: null,
+    });
+
+    await createCampaignHandler(request as any, reply as any);
+
+    expect(reply.status).toHaveBeenCalledWith(400);
+    expect(reply.send).toHaveBeenCalledWith({ error: 'Budget must be a non-negative number' });
+  });
+
   it('should handle database errors gracefully', async () => {
     // Arrange
     const request = createMockRequest({

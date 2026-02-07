@@ -19,20 +19,42 @@ export const mockPrismaClient = {
     create: jest.fn() as any,
     findMany: jest.fn() as any,
     findFirst: jest.fn() as any,
+    findUnique: jest.fn() as any,
     update: jest.fn() as any,
+    delete: jest.fn() as any,
   },
   campaignSource: {
     create: jest.fn() as any,
     findMany: jest.fn() as any,
   },
   campaignAnalysis: {
+    create: jest.fn() as any,
     findFirst: jest.fn() as any,
   },
   generatedAsset: {
+    findFirst: jest.fn() as any,
     findMany: jest.fn() as any,
+    update: jest.fn() as any,
+  },
+  socialConnection: {
+    findMany: jest.fn() as any,
+    findFirst: jest.fn() as any,
+    upsert: jest.fn() as any,
+    delete: jest.fn() as any,
+  },
+  scheduledPost: {
+    create: jest.fn() as any,
+    findMany: jest.fn() as any,
+    findFirst: jest.fn() as any,
+    update: jest.fn() as any,
+  },
+  postMetric: {
+    create: jest.fn() as any,
   },
   job: {
     create: jest.fn() as any,
+    findUnique: jest.fn() as any,
+    findFirst: jest.fn() as any,
   },
   socialConnection: {
     findMany: jest.fn() as any,
@@ -58,6 +80,17 @@ export const testUser = {
   id: 'test-user-id',
   email: 'test@example.com',
   name: 'Test User',
+};
+
+// Test DB user data (as returned by ensureDbUser / prisma.user.upsert)
+export const testDbUser = {
+  id: 'test-user-id',
+  email: 'test@example.com',
+  name: 'Test User',
+  password: '',
+  role: 'user',
+  createdAt: new Date(),
+  updatedAt: new Date(),
 };
 
 // Test campaign data
@@ -100,4 +133,21 @@ export function createMockReply() {
     redirect: jest.fn().mockReturnThis() as any,
   };
   return reply;
+}
+
+// Helper to set up authenticated request mock
+export function mockAuthenticatedUser() {
+  mockSupabaseClient.auth.getUser.mockResolvedValue({
+    data: { user: testUser },
+    error: null,
+  });
+}
+
+// Helper to set up ensureDbUser mock (for analytics routes)
+export function mockAuthenticatedDbUser() {
+  mockSupabaseClient.auth.getUser.mockResolvedValue({
+    data: { user: { ...testUser, user_metadata: { name: testUser.name } } },
+    error: null,
+  });
+  mockPrismaClient.user.upsert.mockResolvedValue(testDbUser);
 }

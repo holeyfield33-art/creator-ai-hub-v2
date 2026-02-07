@@ -10,7 +10,7 @@
     "start": "node dist/index.js",
     "start:worker": "node dist/worker.js",
     "postinstall": "npx prisma generate",
-    "test": "jest --coverage",
+    "test": "jest --coverage --forceExit",
     "test:watch": "jest --watch"
   },
   "dependencies": {
