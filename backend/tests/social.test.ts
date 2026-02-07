@@ -71,6 +71,20 @@ describe('connectXHandler', () => {
     expect(reply.code).toHaveBeenCalledWith(401);
   });
 
+  it('should return 401 with error message when getUserIdFromRequest throws', async () => {
+    // Covers social.ts line 113 (catch branch in connectXHandler)
+    const request = createMockRequest({
+      headers: { authorization: 'Bearer valid-token' },
+    });
+    const reply = createMockReply();
+
+    mockSupabaseClient.auth.getUser.mockRejectedValue(new Error('Auth service down'));
+
+    await connectXHandler(request as any, reply as any);
+
+    expect(reply.code).toHaveBeenCalledWith(401);
+  });
+
   it('should return 500 when OAuth is not configured', async () => {
     delete process.env.X_CLIENT_ID;
     const request = createMockRequest({
@@ -204,11 +218,101 @@ describe('xCallbackHandler', () => {
       'http://localhost:3000/app/schedule?connected=true'
     );
   });
+
+  it('should redirect with session_expired when PKCE state was already consumed', async () => {
+    // Covers social.ts lines 145-146 (pkceData not found in store)
+    // Create a valid state via connectXHandler
+    const connectRequest = createMockRequest({
+      headers: { authorization: 'Bearer valid-token' },
+    });
+    const connectReply = createMockReply();
+    mockAuthenticatedUser();
+    await connectXHandler(connectRequest as any, connectReply as any);
+
+    const authUrl = (connectReply.send as jest.Mock).mock.calls[0][0].authUrl;
+    const stateParam = new URL(authUrl).searchParams.get('state')!;
+
+    // First callback consumes the PKCE entry
+    const cb1Req = createMockRequest({ query: { code: 'code1', state: stateParam } });
+    const cb1Reply = createMockReply();
+    mockFetch.mockResolvedValueOnce({
+      ok: true,
+      json: () => Promise.resolve({ access_token: 'at', refresh_token: 'rt', expires_in: 3600 }),
+    });
+    mockFetch.mockResolvedValueOnce({
+      ok: true,
+      json: () => Promise.resolve({ data: { id: 'uid', username: 'u' } }),
+    });
+    mockPrismaClient.socialConnection.upsert.mockResolvedValue({});
+    await xCallbackHandler(cb1Req as any, cb1Reply as any);
+
+    // Second callback with same state → PKCE entry already deleted
+    const cb2Req = createMockRequest({ query: { code: 'code2', state: stateParam } });
+    const cb2Reply = createMockReply();
+    await xCallbackHandler(cb2Req as any, cb2Reply as any);
+
+    expect(cb2Reply.redirect).toHaveBeenCalledWith(
+      'http://localhost:3000/app/schedule?error=session_expired'
+    );
+  });
+
+  it('should redirect with callback_failed when user info fetch fails', async () => {
+    // Covers social.ts line 184 (throw 'Failed to get user info')
+    const connectRequest = createMockRequest({
+      headers: { authorization: 'Bearer valid-token' },
+    });
+    const connectReply = createMockReply();
+    mockAuthenticatedUser();
+    await connectXHandler(connectRequest as any, connectReply as any);
+
+    const authUrl = (connectReply.send as jest.Mock).mock.calls[0][0].authUrl;
+    const stateParam = new URL(authUrl).searchParams.get('state')!;
+
+    const callbackRequest = createMockRequest({
+      query: { code: 'auth-code', state: stateParam },
+    });
+    const callbackReply = createMockReply();
+
+    // Token exchange succeeds
+    mockFetch.mockResolvedValueOnce({
+      ok: true,
+      json: () => Promise.resolve({ access_token: 'at', refresh_token: 'rt', expires_in: 3600 }),
+    });
+    // User info fetch fails
+    mockFetch.mockResolvedValueOnce({
+      ok: false,
+      status: 403,
+      text: () => Promise.resolve('Forbidden'),
+    });
+
+    await xCallbackHandler(callbackRequest as any, callbackReply as any);
+
+    expect(callbackReply.redirect).toHaveBeenCalledWith(
+      'http://localhost:3000/app/schedule?error=callback_failed'
+    );
+  });
 });
 
 describe('listConnectionsHandler', () => {
   beforeEach(() => {
     jest.clearAllMocks();
+  });
+
+  it('should return 401 when token is present but Supabase returns error', async () => {
+    // Covers auth.ts line 18-19 (getUserIdFromRequest returns null on error)
+    const request = createMockRequest({
+      headers: { authorization: 'Bearer expired-token' },
+    });
+    const reply = createMockReply();
+
+    mockSupabaseClient.auth.getUser.mockResolvedValue({
+      data: { user: null },
+      error: { message: 'Token expired' },
+    });
+
+    await listConnectionsHandler(request as any, reply as any);
+
+    expect(reply.code).toHaveBeenCalledWith(401);
   });
 
   it('should return user connections', async () => {
@@ -436,6 +540,29 @@ describe('schedulePostHandler', () => {
 
     expect(reply.code).toHaveBeenCalledWith(401);
   });
+
+  it('should return 400 on database error during scheduling', async () => {
+    // Covers social.ts lines 362-363 (catch branch in schedulePostHandler)
+    const request = createMockRequest({
+      headers: { authorization: 'Bearer valid-token' },
+      body: {
+        assetId: 'asset-1',
+        connectionId: 'conn-1',
+        scheduledFor: '2026-03-01T12:00:00Z',
+        content: 'Tweet',
+      },
+    });
+    const reply = createMockReply();
+    mockAuthenticatedUser();
+
+    mockPrismaClient.generatedAsset.findFirst.mockResolvedValue({ id: 'asset-1' });
+    mockPrismaClient.socialConnection.findFirst.mockResolvedValue({ id: 'conn-1', platform: 'x' });
+    mockPrismaClient.scheduledPost.create.mockRejectedValue(new Error('DB write failed'));
+
+    await schedulePostHandler(request as any, reply as any);
+
+    expect(reply.code).toHaveBeenCalledWith(400);
+  });
 });
 
 describe('listScheduledPostsHandler', () => {
@@ -480,6 +607,20 @@ describe('listScheduledPostsHandler', () => {
     await listScheduledPostsHandler(request as any, reply as any);
 
     expect(reply.code).toHaveBeenCalledWith(401);
+  });
+
+  it('should return 500 on database error', async () => {
+    // Covers social.ts lines 400-401 (catch branch)
+    const request = createMockRequest({
+      headers: { authorization: 'Bearer valid-token' },
+    });
+    const reply = createMockReply();
+    mockAuthenticatedUser();
+    mockPrismaClient.scheduledPost.findMany.mockRejectedValue(new Error('DB error'));
+
+    await listScheduledPostsHandler(request as any, reply as any);
+
+    expect(reply.code).toHaveBeenCalledWith(500);
   });
 });
 

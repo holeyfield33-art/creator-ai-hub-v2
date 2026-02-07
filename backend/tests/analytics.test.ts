@@ -184,6 +184,146 @@ describe('GET /api/analytics/dashboard', () => {
     expect(sentData.dailyMetrics[1].date).toBe('2026-01-20');
   });
 
+  it('should return topCampaigns with correct aggregation, ordering and limit', async () => {
+    const request = createMockRequest({
+      headers: { authorization: 'Bearer valid-token' },
+      query: { days: '30' },
+    });
+    const reply = createMockReply();
+    mockAuthenticatedDbUser();
+
+    // No scheduled posts for the overview section
+    mockPrismaClient.scheduledPost.findMany.mockResolvedValue([]);
+
+    // Create 6 campaigns - only those with posts > 0 should appear, sorted by engagements desc, max 5
+    mockPrismaClient.campaign.findMany.mockResolvedValue([
+      {
+        id: 'camp-1', name: 'Campaign Alpha',
+        generatedAssets: [{
+          scheduledPosts: [
+            { metrics: [{ impressions: 1000, engagements: 200 }] },
+            { metrics: [{ impressions: 500, engagements: 100 }] },
+          ],
+        }],
+      },
+      {
+        id: 'camp-2', name: 'Campaign Beta',
+        generatedAssets: [{
+          scheduledPosts: [
+            { metrics: [{ impressions: 2000, engagements: 500 }] },
+          ],
+        }],
+      },
+      {
+        id: 'camp-3', name: 'Campaign Gamma (no posts)',
+        generatedAssets: [{ scheduledPosts: [] }],
+      },
+      {
+        id: 'camp-4', name: 'Campaign Delta',
+        generatedAssets: [{
+          scheduledPosts: [
+            { metrics: [{ impressions: 800, engagements: 50 }] },
+          ],
+        }],
+      },
+      {
+        id: 'camp-5', name: 'Campaign Epsilon',
+        generatedAssets: [{
+          scheduledPosts: [
+            { metrics: [{ impressions: 600, engagements: 30 }] },
+          ],
+        }],
+      },
+      {
+        id: 'camp-6', name: 'Campaign Zeta',
+        generatedAssets: [{
+          scheduledPosts: [
+            { metrics: [{ impressions: 400, engagements: 20 }] },
+          ],
+        }],
+      },
+      {
+        id: 'camp-7', name: 'Campaign Eta',
+        generatedAssets: [{
+          scheduledPosts: [
+            { metrics: [{ impressions: 300, engagements: 10 }] },
+          ],
+        }],
+      },
+    ]);
+
+    await dashboardHandler(request as any, reply as any);
+
+    const sentData = (reply.send as jest.Mock).mock.calls[0][0];
+    const top = sentData.topCampaigns;
+
+    // camp-3 has 0 posts so filtered out; 6 remain but only top 5
+    expect(top).toHaveLength(5);
+
+    // Sorted by engagements desc
+    expect(top[0].id).toBe('camp-2');
+    expect(top[0].engagements).toBe(500);
+    expect(top[0].impressions).toBe(2000);
+    expect(top[0].posts).toBe(1);
+    expect(top[0].engagementRate).toBe(25);
+
+    expect(top[1].id).toBe('camp-1');
+    expect(top[1].engagements).toBe(300);
+    expect(top[1].posts).toBe(2);
+
+    // camp-7 (10 engagements) should be excluded as 6th
+    expect(top.find((c: any) => c.id === 'camp-7')).toBeUndefined();
+  });
+
+  it('should handle campaign with zero impressions gracefully (no division by zero)', async () => {
+    const request = createMockRequest({
+      headers: { authorization: 'Bearer valid-token' },
+      query: { days: '30' },
+    });
+    const reply = createMockReply();
+    mockAuthenticatedDbUser();
+
+    mockPrismaClient.scheduledPost.findMany.mockResolvedValue([]);
+    mockPrismaClient.campaign.findMany.mockResolvedValue([
+      {
+        id: 'camp-zero', name: 'Zero Impressions',
+        generatedAssets: [{
+          scheduledPosts: [
+            { metrics: [{ impressions: 0, engagements: 0 }] },
+          ],
+        }],
+      },
+    ]);
+
+    await dashboardHandler(request as any, reply as any);
+
+    const sentData = (reply.send as jest.Mock).mock.calls[0][0];
+    expect(sentData.topCampaigns[0].engagementRate).toBe(0);
+  });
+
+  it('should filter by platform when specified', async () => {
+    const request = createMockRequest({
+      headers: { authorization: 'Bearer valid-token' },
+      query: { days: '30', platform: 'x' },
+    });
+    const reply = createMockReply();
+    mockAuthenticatedDbUser();
+
+    mockPrismaClient.scheduledPost.findMany.mockResolvedValue([]);
+    mockPrismaClient.campaign.findMany.mockResolvedValue([]);
+
+    await dashboardHandler(request as any, reply as any);
+
+    // Verify the platform filter was passed to the query
+    expect(mockPrismaClient.scheduledPost.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({
+          platform: 'x',
+        }),
+      })
+    );
+  });
+
   it('should return 401 without authorization', async () => {
     const request = createMockRequest({
       headers: {},
