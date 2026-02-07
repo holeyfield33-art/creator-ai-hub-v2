@@ -2,9 +2,22 @@
   "name": "@creator-ai-hub/frontend",
   "version": "1.0.0",
   "description": "Frontend for Creator AI Hub",
-  "main": "src/index.tsx",
   "scripts": {
-    "dev": "echo 'Frontend dev server placeholder - to be implemented in Phase 3'"
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "lint": "next lint"
+  },
+  "dependencies": {
+    "next": "^14.2.0",
+    "react": "^18.3.0",
+    "react-dom": "^18.3.0"
+  },
+  "devDependencies": {
+    "@types/node": "^20.0.0",
+    "@types/react": "^18.3.0",
+    "@types/react-dom": "^18.3.0",
+    "typescript": "^5.9.3"
   },
   "keywords": [],
   "author": "",
