@@ -1,6 +1,9 @@
 import { PrismaClient } from '@prisma/client'
+import { createAIProvider, chunkText } from './lib/ai-provider'
+import { buildSummarizePrompt } from './prompts/summarize'
 
 const prisma = new PrismaClient()
+const aiProvider = createAIProvider()
 
 const POLL_INTERVAL_MS = 5000 // Poll every 5 seconds
 const MAX_RETRIES = 3
@@ -11,6 +14,79 @@ interface JobProcessor {
 
 // Job processors by type
 const jobProcessors: JobProcessor = {
+  summarize: async (payload: any) => {
+    console.log('Processing summarize job:', payload)
+    
+    const { campaignId, sourceId, text } = payload
+    
+    if (!campaignId || !text) {
+      throw new Error('Missing required fields: campaignId, text')
+    }
+    
+    // Chunk text if needed
+    const chunks = chunkText(text, 4000)
+    console.log(`Text split into ${chunks.length} chunk(s)`)
+    
+    // For simplicity, summarize the first chunk or combine chunks
+    const textToSummarize = chunks.length > 1 
+      ? chunks.slice(0, 3).join('\n\n...\n\n') // Take first 3 chunks
+      : chunks[0]
+    
+    // Build prompt and call AI
+    const prompt = buildSummarizePrompt(textToSummarize)
+    const response = await aiProvider.complete(prompt, {
+      maxTokens: 1000,
+      temperature: 0.7,
+    })
+    
+    // Parse JSON response
+    let analysis
+    try {
+      analysis = JSON.parse(response.content)
+    } catch (err) {
+      // If JSON parsing fails, try to extract from markdown code blocks
+      const jsonMatch = response.content.match(/```(?:json)?\s*(\{[\s\S]*?\})\s*```/)
+      if (jsonMatch) {
+        analysis = JSON.parse(jsonMatch[1])
+      } else {
+        throw new Error('Failed to parse AI response as JSON')
+      }
+    }
+    
+    // Store analysis in campaign_analysis table
+    const campaignAnalysis = await prisma.campaignAnalysis.create({
+      data: {
+        campaignId,
+        analysisType: 'content_summary',
+        results: {
+          summary: analysis.summary,
+          key_points: analysis.key_points,
+          hooks: analysis.hooks,
+          sourceId,
+          textLength: text.length,
+          chunksProcessed: chunks.length,
+        },
+        summary: analysis.summary,
+        score: null,
+      },
+    })
+    
+    // Update campaign status to 'ready'
+    await prisma.campaign.update({
+      where: { id: campaignId },
+      data: { status: 'ready' },
+    })
+    
+    console.log(`✅ Campaign ${campaignId} analyzed and set to ready`)
+    
+    return {
+      status: 'completed',
+      analysisId: campaignAnalysis.id,
+      summary: analysis.summary,
+      tokenUsage: response.usage,
+    }
+  },
+  
   analysis: async (payload: any) => {
     console.log('Processing analysis job:', payload)
     // Simulate work
